@@ -72,6 +72,7 @@ public:
 		PackSource *src = nullptr;
 		bool encrypted;
 		bool bundle;
+		bool read_only = false; // Added by mount_read_only_pack(); files on disk take priority over it.
 	};
 
 private:
@@ -111,8 +112,19 @@ private:
 	static inline PackedData *singleton = nullptr;
 	bool disabled = false;
 
+	// Read-only mounts (see mount_read_only_pack()).
+	bool mounting_read_only = false; // True while mount_read_only_pack() is parsing a pack.
+	int read_only_mount_count = 0;
+	Vector<String> read_only_disk_collisions; // Files skipped during the current mount because they exist on disk.
+	int read_only_pack_collisions = 0; // Files skipped during the current mount because an earlier pack provided them.
+
 	void _free_packed_dirs(PackedDir *p_dir);
 	void _get_file_paths(PackedDir *p_dir, const String &p_parent_dir, HashSet<String> &r_paths) const;
+
+	static bool _is_excluded_from_read_only_mount(const String &p_simplified_path);
+	static bool _file_exists_on_disk(const String &p_path);
+	static bool _is_shadowed_by_disk(const String &p_path); // The file, or the file a sidecar (.remap, .import, .uid) belongs to, exists on disk.
+	static bool _dir_exists_on_disk(const String &p_path);
 
 public:
 	void add_pack_source(PackSource *p_source);
@@ -126,6 +138,13 @@ public:
 
 	static PackedData *get_singleton() { return singleton; }
 	Error add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset);
+
+	// Mounts a pack on top of the project without taking it over: unlike ProjectSettings::load_resource_pack(),
+	// res:// is not snapshotted and directory access stays on disk. Files that exist on disk are skipped
+	// (the project wins), and lookups keep preferring the disk for anything created later.
+	Error mount_read_only_pack(const String &p_path);
+	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
+	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
 
 	void clear();
 
@@ -230,15 +249,38 @@ Ref<FileAccess> PackedData::try_open_path(const String &p_path) {
 	if (!E) {
 		return nullptr; // Not found.
 	}
+	if (E->value.read_only && _is_shadowed_by_disk(p_path)) {
+		return nullptr; // Created on disk after mounting; the project wins.
+	}
 
 	return E->value.src->get_file(p_path, &E->value);
 }
 
 bool PackedData::has_path(const String &p_path) {
-	return files.has(PathMD5(p_path.simplify_path().trim_prefix("res://").md5_buffer()));
+	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(PathMD5(p_path.simplify_path().trim_prefix("res://").md5_buffer()));
+	if (!E) {
+		return false;
+	}
+	if (E->value.read_only && _is_shadowed_by_disk(p_path)) {
+		return false; // Created on disk after mounting; the project wins.
+	}
+	return true;
+}
+
+bool PackedData::is_read_only_path(const String &p_path) {
+	if (read_only_mount_count == 0) {
+		return false;
+	}
+	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(PathMD5(p_path.simplify_path().trim_prefix("res://").md5_buffer()));
+	return E && E->value.read_only && !_is_shadowed_by_disk(p_path);
 }
 
 bool PackedData::has_directory(const String &p_path) {
+	if (read_only_mount_count > 0 && _dir_exists_on_disk(p_path)) {
+		// Folders that exist in the project and in a mounted pack (e.g. res://scenes) are the project's,
+		// so modified times and permissions come from the disk.
+		return false;
+	}
 	Ref<DirAccess> da = try_open_directory(p_path);
 	if (da.is_valid()) {
 		return true;

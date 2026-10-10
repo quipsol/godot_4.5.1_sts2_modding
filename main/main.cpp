@@ -2110,7 +2110,26 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	});
 
 #ifdef TOOLS_ENABLED
-	if (editor) {
+	{
+		// Packs mounted read-only on top of the project (e.g. a game's pack and other mods' packs when modding).
+		// Applies to the editor and to the project run from it, so both resolve the same resources.
+		// Relative paths are relative to the project folder; machine-specific paths can go in override.cfg.
+		GLOBAL_DEF_RST(PropertyInfo(Variant::PACKED_STRING_ARRAY, "editor/mounted_packs/paths", PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.pck", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
+		if (!project_manager) {
+			const PackedStringArray mounted_packs = GLOBAL_GET("editor/mounted_packs/paths");
+			for (const String &pack : mounted_packs) {
+				String path = ProjectSettings::get_singleton()->globalize_path(pack.strip_edges());
+				if (path.is_relative_path()) {
+					path = ProjectSettings::get_singleton()->get_resource_path().path_join(path);
+				}
+				packed_data->mount_read_only_pack(path.simplify_path());
+			}
+		}
+	}
+
+	// Stock Godot disables packs in the editor entirely. Keep that unless packs were mounted read-only above;
+	// ProjectSettings::load_resource_pack() still refuses to run in the editor either way.
+	if (editor && !packed_data->has_read_only_mounts()) {
 		packed_data->set_disabled(true);
 	}
 #endif

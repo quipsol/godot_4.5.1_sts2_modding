@@ -34,6 +34,7 @@
 #include "core/extension/gdextension_manager.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/resource_saver.h"
 #include "core/object/worker_thread_pool.h"
 #include "core/os/os.h"
@@ -3409,6 +3410,12 @@ Error EditorFileSystem::_resource_import(const String &p_path) {
 
 Ref<Resource> EditorFileSystem::_load_resource_on_startup(ResourceFormatImporter *p_importer, const String &p_path, Error *r_error, bool p_use_sub_threads, float *r_progress, ResourceFormatLoader::CacheMode p_cache_mode) {
 	ERR_FAIL_NULL_V(p_importer, Ref<Resource>());
+
+	if (PackedData::get_singleton()->is_read_only_path(p_path + ".import")) {
+		// Imported resource from a read-only mounted pack: it ships the .import file and the imported data but
+		// usually not the source file, and it must never be reimported (that would write into the project).
+		return p_importer->load_internal(p_path, r_error, p_use_sub_threads, r_progress, p_cache_mode, false);
+	}
 
 	if (!FileAccess::exists(p_path)) {
 		ERR_FAIL_V_MSG(Ref<Resource>(), vformat("Failed loading resource: %s. The file doesn't seem to exist.", p_path));

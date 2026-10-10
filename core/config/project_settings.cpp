@@ -545,6 +545,14 @@ bool ProjectSettings::_load_resource_pack(const String &p_pack, bool p_replace_f
 		return false;
 	}
 
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint()) {
+		// PackedData stays enabled in the editor when packs are mounted read-only (see Main::setup()),
+		// but regular pack loading would snapshot res:// and switch it to DirAccessPack, so keep refusing it.
+		return false;
+	}
+#endif
+
 	if (p_pack == "res://") {
 		// Loading the resource directory as a pack source is reserved for internal use only.
 		return false;

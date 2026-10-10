@@ -30,6 +30,7 @@
 
 #include "file_access_pack.h"
 
+#include "core/config/project_settings.h"
 #include "core/io/file_access_encrypted.h"
 #include "core/object/script_language.h"
 #include "core/os/os.h"
@@ -45,13 +46,105 @@ Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t 
 	return ERR_FILE_UNRECOGNIZED;
 }
 
+Error PackedData::mount_read_only_pack(const String &p_path) {
+	read_only_disk_collisions.clear();
+	read_only_pack_collisions = 0;
+	int files_before = files.size();
+
+	mounting_read_only = true;
+	Error err = add_pack(p_path, false, 0);
+	mounting_read_only = false;
+
+	if (err != OK) {
+		ERR_PRINT(vformat("Could not mount pack \"%s\" read-only (%s).", p_path, error_names[err]));
+		return err;
+	}
+	read_only_mount_count++;
+
+	print_line(vformat("Mounted pack \"%s\" read-only: %d files.", p_path, files.size() - files_before));
+	if (!read_only_disk_collisions.is_empty()) {
+		// One summary instead of a warning per file: with the game's pack this can be thousands of files.
+		String examples;
+		const int max_examples = 5;
+		for (int i = 0; i < MIN(max_examples, read_only_disk_collisions.size()); i++) {
+			examples += "\n    res://" + read_only_disk_collisions[i];
+		}
+		if (read_only_disk_collisions.size() > max_examples) {
+			examples += vformat("\n    ... and %d more (run with --verbose to list all).", read_only_disk_collisions.size() - max_examples);
+		}
+		WARN_PRINT(vformat("Mounted pack \"%s\": skipped %d files that also exist in the project (the project's files are used):%s", p_path, read_only_disk_collisions.size(), examples));
+		for (const String &path : read_only_disk_collisions) {
+			print_verbose(vformat("  Skipped (exists in project): res://%s", path));
+		}
+	}
+	if (read_only_pack_collisions > 0) {
+		print_line(vformat("Mounted pack \"%s\": skipped %d files already provided by an earlier mounted pack.", p_path, read_only_pack_collisions));
+	}
+	read_only_disk_collisions.clear();
+	return OK;
+}
+
+bool PackedData::_is_excluded_from_read_only_mount(const String &p_simplified_path) {
+	// Project-level files must always come from the project itself. Imported/exported resources
+	// under .godot/ are what the pack's .import and .remap files point to, so those are kept.
+	if (p_simplified_path == "project.godot" || p_simplified_path == "project.binary" || p_simplified_path == "override.cfg") {
+		return true;
+	}
+	if (p_simplified_path.begins_with(".godot/")) {
+		return !p_simplified_path.begins_with(".godot/imported/") && !p_simplified_path.begins_with(".godot/exported/");
+	}
+	return false;
+}
+
+bool PackedData::_file_exists_on_disk(const String &p_path) {
+	// FileAccess::create() bypasses PackedData, so this checks the real project folder.
+	Ref<FileAccess> fa = FileAccess::create_for_path(p_path);
+	return fa.is_valid() && fa->file_exists(p_path);
+}
+
+bool PackedData::_is_shadowed_by_disk(const String &p_path) {
+	if (_file_exists_on_disk(p_path)) {
+		return true;
+	}
+	// Sidecar files describe the file next to them: the loader checks "X.remap" before "X", and "X.import"/"X.uid"
+	// define how "X" is loaded and identified. If the project has "X", the pack's sidecars must not apply to it.
+	static const char *sidecar_extensions[] = { ".remap", ".import", ".uid" };
+	for (const char *extension : sidecar_extensions) {
+		if (p_path.ends_with(extension)) {
+			return _file_exists_on_disk(p_path.trim_suffix(extension));
+		}
+	}
+	return false;
+}
+
+bool PackedData::_dir_exists_on_disk(const String &p_path) {
+	// ACCESS_RESOURCES may be DirAccessPack at runtime, so go through the OS file system instead.
+	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+	return da.is_valid() && da->dir_exists(ProjectSettings::get_singleton()->globalize_path(p_path));
+}
+
 void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted, bool p_bundle) {
 	String simplified_path = p_path.simplify_path().trim_prefix("res://");
 	PathMD5 pmd5(simplified_path.md5_buffer());
 
 	bool exists = files.has(pmd5);
 
+	if (mounting_read_only) {
+		if (_is_excluded_from_read_only_mount(simplified_path)) {
+			return;
+		}
+		if (_is_shadowed_by_disk("res://" + simplified_path)) {
+			read_only_disk_collisions.push_back(simplified_path);
+			return;
+		}
+		if (exists) {
+			read_only_pack_collisions++;
+			return;
+		}
+	}
+
 	PackedFile pf;
+	pf.read_only = mounting_read_only;
 	pf.encrypted = p_encrypted;
 	pf.bundle = p_bundle;
 	pf.pack = p_pkg_path;
