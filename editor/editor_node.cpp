@@ -85,6 +85,7 @@
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/history_dock.h"
 #include "editor/docks/import_dock.h"
+#include "editor/docks/mounted_packs_dock.h"
 #include "editor/docks/inspector_dock.h"
 #include "editor/docks/node_dock.h"
 #include "editor/docks/scene_tree_dock.h"
@@ -441,10 +442,10 @@ void EditorNode::_check_mounted_packs_setting() {
 	if (configured == mounted_packs_configuration) {
 		return;
 	}
-	_remount_read_only_packs();
+	remount_read_only_packs();
 }
 
-void EditorNode::_remount_read_only_packs() {
+void EditorNode::remount_read_only_packs() {
 	PackedData *packed_data = PackedData::get_singleton();
 	mounted_packs_configuration = packed_data->get_configured_read_only_packs();
 	packed_data->remount_read_only_packs();
@@ -465,6 +466,10 @@ void EditorNode::_remount_read_only_packs() {
 		}
 	}
 	print_line(vformat("Remounted %d read-only packs, reloaded %d resources from them.", packed_data->get_mounted_read_only_packs().size(), reloaded));
+
+	if (MountedPacksDock::get_singleton()) {
+		MountedPacksDock::get_singleton()->update_packs();
+	}
 }
 
 void EditorNode::_update_from_settings() {
@@ -2094,7 +2099,12 @@ int EditorNode::_save_external_resources(bool p_also_save_external_data) {
 	if (packed_data && packed_data->has_read_only_mounts()) {
 		Vector<String> read_only;
 		for (const String &path : edited_resources) {
-			if (!packed_data->get_pack_shadowed_by_writing(path).is_empty()) {
+			if (packed_data->get_pack_shadowed_by_writing(path).is_empty()) {
+				continue;
+			}
+			// Scenes are never saved here (see below), so they're not worth a warning.
+			Ref<PackedScene> scene = ResourceCache::get_ref(path);
+			if (scene.is_null()) {
 				read_only.push_back(path);
 			}
 		}
@@ -3375,7 +3385,7 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 			OS::get_singleton()->shell_show_in_file_manager(OS::get_singleton()->get_user_data_dir(), true);
 		} break;
 		case PROJECT_REMOUNT_READ_ONLY_PACKS: {
-			_remount_read_only_packs();
+			remount_read_only_packs();
 		} break;
 		case SCENE_QUIT:
 		case PROJECT_QUIT_TO_PROJECT_MANAGER:
@@ -8456,6 +8466,9 @@ EditorNode::EditorNode() {
 
 	// FileSystem: Bottom left.
 	editor_dock_manager->add_dock(FileSystemDock::get_singleton(), TTRC("FileSystem"), EditorDockManager::DOCK_SLOT_LEFT_BR, ED_SHORTCUT_AND_COMMAND("docks/open_filesystem", TTRC("Open FileSystem Dock"), KeyModifierMask::ALT | Key::F), "Folder");
+
+	// Mounted Packs: Bottom left, behind FileSystem.
+	editor_dock_manager->add_dock(memnew(MountedPacksDock), TTRC("Mounted Packs"), EditorDockManager::DOCK_SLOT_LEFT_BR, ED_SHORTCUT_AND_COMMAND("docks/open_mounted_packs", TTRC("Open Mounted Packs Dock")), "PackedDataContainer");
 
 	// Inspector: Full height right.
 	editor_dock_manager->add_dock(InspectorDock::get_singleton(), TTRC("Inspector"), EditorDockManager::DOCK_SLOT_RIGHT_UL, ED_SHORTCUT_AND_COMMAND("docks/open_inspector", TTRC("Open Inspector Dock")), "AnimationTrackList");

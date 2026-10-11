@@ -211,6 +211,28 @@ bool PackedData::_remove_read_only_files(PackedDir *p_dir, const String &p_dir_p
 	return removed_any || !removed_files.is_empty();
 }
 
+HashMap<String, Vector<String>> PackedData::get_read_only_file_paths() const {
+	HashMap<String, Vector<String>> paths;
+	if (read_only_mount_count > 0) {
+		MountsReadLock lock(this);
+		_get_read_only_file_paths(root, String(), paths);
+	}
+	return paths;
+}
+
+void PackedData::_get_read_only_file_paths(const PackedDir *p_dir, const String &p_dir_path, HashMap<String, Vector<String>> &r_paths) const {
+	for (const String &file : p_dir->files) {
+		const String path = p_dir_path.path_join(file);
+		HashMap<PathMD5, PackedFile, PathMD5>::ConstIterator E = files.find(PathMD5(path.md5_buffer()));
+		if (E && E->value.read_only) {
+			r_paths[E->value.pack].push_back(path);
+		}
+	}
+	for (const KeyValue<String, PackedDir *> &E : p_dir->subdirs) {
+		_get_read_only_file_paths(E.value, p_dir_path.path_join(E.key), r_paths);
+	}
+}
+
 void PackedData::_clear_read_only_state() {
 	read_only_mount_count = 0;
 	mounted_read_only_packs.clear();

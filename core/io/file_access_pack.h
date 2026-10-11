@@ -159,6 +159,7 @@ private:
 
 	int _register_read_only_uids(PackedFile p_uid_cache, const String &p_pack_path);
 	bool _remove_read_only_files(PackedDir *p_dir, const String &p_dir_path); // Returns true if anything was removed.
+	void _get_read_only_file_paths(const PackedDir *p_dir, const String &p_dir_path, HashMap<String, Vector<String>> &r_paths) const;
 	void _clear_read_only_state();
 	bool _yields_to_disk(const PackedFile &p_file, const String &p_path); // Read-only entry shadowed by a project file (warns once).
 
@@ -194,6 +195,8 @@ public:
 	void unmount_read_only_packs(); // Removes only the read-only mounts and their UIDs.
 	void remount_read_only_packs(); // Unmounts, then mounts the configured packs again (e.g. after a pack changed on disk).
 	const Vector<String> &get_mounted_read_only_packs() const { return mounted_read_only_packs; }
+	// The files of the read-only mounted packs by pack, as stored in them (relative to res://, sidecars and .godot/ included).
+	HashMap<String, Vector<String>> get_read_only_file_paths() const;
 	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
 	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
 	// The read-only mounted pack whose file a write to p_path would shadow, or an empty string.

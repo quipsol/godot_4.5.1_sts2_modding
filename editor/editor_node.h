@@ -627,7 +627,7 @@ private:
 
 	Vector<String> mounted_packs_configuration; // Packs mounted by the last (re)mount, to remount when the setting changes them.
 	void _check_mounted_packs_setting();
-	void _remount_read_only_packs();
+
 	void _gdextensions_reloaded();
 	void _update_translations();
 	void _translation_resources_changed();
@@ -979,6 +979,8 @@ public:
 
 	Dictionary drag_resource(const Ref<Resource> &p_res, Control *p_from);
 	Dictionary drag_files_and_dirs(const Vector<String> &p_paths, Control *p_from);
+
+	void remount_read_only_packs(); // Project > Remount Read-Only Packs; also when editor/mounted_packs/paths changes.
 
 	EditorQuickOpenDialog *get_quick_open_dialog() { return quick_open_dialog; }
 
