@@ -237,6 +237,9 @@ bool EditorExportPlatform::_check_hash(const uint8_t *p_hash, const Vector<uint8
 Error EditorExportPlatform::_load_patches(const Vector<String> &p_patches) {
 	Error err = OK;
 	if (!p_patches.is_empty()) {
+		// The patch's base packs use PackedData as a scratch index; read-only mounts must not mix into it.
+		// They are mounted again in _unload_patches().
+		PackedData::get_singleton()->unmount_read_only_packs();
 		for (const String &path : p_patches) {
 			err = PackedData::get_singleton()->add_pack(path, true, 0);
 			if (err != OK) {
@@ -250,6 +253,8 @@ Error EditorExportPlatform::_load_patches(const Vector<String> &p_patches) {
 
 void EditorExportPlatform::_unload_patches() {
 	PackedData::get_singleton()->clear();
+	// clear() also removes read-only mounts; bring the configured ones back.
+	PackedData::get_singleton()->mount_configured_read_only_packs();
 }
 
 Error EditorExportPlatform::_encrypt_and_store_data(Ref<FileAccess> p_fd, const String &p_path, const Vector<uint8_t> &p_data, const Vector<String> &p_enc_in_filters, const Vector<String> &p_enc_ex_filters, const Vector<uint8_t> &p_key, uint64_t p_seed, bool &r_encrypt) {

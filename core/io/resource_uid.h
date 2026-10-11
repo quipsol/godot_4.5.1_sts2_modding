@@ -80,6 +80,7 @@ public:
 	String get_id_path(ID p_id) const;
 	void remove_id(ID p_id);
 	bool add_mounted_id(ID p_id, const CharString &p_path); // Returns false if an earlier mounted pack already registered p_id.
+	void clear_mounted_ids(); // When the read-only packs are unmounted.
 
 	static String uid_to_path(const String &p_uid);
 	static String path_to_uid(const String &p_path);

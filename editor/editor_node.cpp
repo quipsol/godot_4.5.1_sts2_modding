@@ -435,6 +435,38 @@ void EditorNode::_update_vsync_mode() {
 	DisplayServer::get_singleton()->window_set_vsync_mode(window_vsync_mode);
 }
 
+void EditorNode::_check_mounted_packs_setting() {
+	// Compare the effective packs (resolved, empty entries skipped), so e.g. adding an empty entry in the inspector doesn't remount.
+	const Vector<String> configured = PackedData::get_singleton()->get_configured_read_only_packs();
+	if (configured == mounted_packs_configuration) {
+		return;
+	}
+	_remount_read_only_packs();
+}
+
+void EditorNode::_remount_read_only_packs() {
+	PackedData *packed_data = PackedData::get_singleton();
+	mounted_packs_configuration = packed_data->get_configured_read_only_packs();
+	packed_data->remount_read_only_packs();
+
+	// Resources already loaded from the packs keep the data they were loaded with; reload them from the new packs.
+	// Scripts are left alone: the game's C# scripts are placeholder files bound to types in its assembly.
+	List<Ref<Resource>> cached;
+	ResourceCache::get_cached_resources(&cached);
+	int reloaded = 0;
+	for (Ref<Resource> &resource : cached) {
+		const String path = resource->get_path();
+		if (!path.begins_with("res://") || path.contains("::") || resource->is_class("Script")) {
+			continue;
+		}
+		if (packed_data->is_read_only_path(path) || packed_data->is_read_only_path(path + ".import") || packed_data->is_read_only_path(path + ".remap")) {
+			resource->reload_from_file();
+			reloaded++;
+		}
+	}
+	print_line(vformat("Remounted %d read-only packs, reloaded %d resources from them.", packed_data->get_mounted_read_only_packs().size(), reloaded));
+}
+
 void EditorNode::_update_from_settings() {
 	if (!is_inside_tree()) {
 		return;
@@ -2056,6 +2088,31 @@ int EditorNode::_save_external_resources(bool p_also_save_external_data) {
 		res->set_edited(false);
 	}
 
+	// Resources from read-only mounted packs can't be saved back (and are often only marked as edited, not changed).
+	// Skip them with one warning instead of an error per resource.
+	PackedData *packed_data = PackedData::get_singleton();
+	if (packed_data && packed_data->has_read_only_mounts()) {
+		Vector<String> read_only;
+		for (const String &path : edited_resources) {
+			if (!packed_data->get_pack_shadowed_by_writing(path).is_empty()) {
+				read_only.push_back(path);
+			}
+		}
+		for (const String &path : read_only) {
+			edited_resources.erase(path);
+		}
+		if (!read_only.is_empty()) {
+			String list;
+			for (int i = 0; i < MIN(5, read_only.size()); i++) {
+				list += "\n    " + read_only[i];
+			}
+			if (read_only.size() > 5) {
+				list += vformat("\n    ... and %d more.", read_only.size() - 5);
+			}
+			WARN_PRINT(vformat("Not saved: %d resources from read-only mounted packs are marked as modified. Changes to them are not kept; to keep them, save the resource to a path in the project.%s", read_only.size(), list));
+		}
+	}
+
 	bool script_was_saved = false;
 	for (const String &E : edited_resources) {
 		Ref<Resource> res = ResourceCache::get_ref(E);
@@ -3068,7 +3125,7 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 			int scene_idx = (p_option == SCENE_SAVE_SCENE) ? -1 : tab_closing_idx;
 			Node *scene = editor_data.get_edited_scene_root(scene_idx);
 			if (scene && !scene->get_scene_file_path().is_empty()) {
-				const String protecting_pack = PackedData::get_singleton() ? PackedData::get_singleton()->get_write_protecting_pack(scene->get_scene_file_path()) : String();
+				const String protecting_pack = PackedData::get_singleton() ? PackedData::get_singleton()->get_pack_shadowed_by_writing(scene->get_scene_file_path()) : String();
 				if (!protecting_pack.is_empty()) {
 					// Scenes from read-only mounted packs can be opened and edited, but only saved elsewhere.
 					show_save_accept(vformat(TTR("%s comes from the read-only mounted pack \"%s\" and can't be overwritten.\nPlease save it to a location in your project."), scene->get_scene_file_path(), protecting_pack), TTR("OK"));
@@ -3316,6 +3373,9 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 			// Ensure_user_data_dir() to prevent the edge case: "Open User Data Folder" won't work after the project was renamed in ProjectSettingsEditor unless the project is saved.
 			OS::get_singleton()->ensure_user_data_dir();
 			OS::get_singleton()->shell_show_in_file_manager(OS::get_singleton()->get_user_data_dir(), true);
+		} break;
+		case PROJECT_REMOUNT_READ_ONLY_PACKS: {
+			_remount_read_only_packs();
 		} break;
 		case SCENE_QUIT:
 		case PROJECT_QUIT_TO_PROJECT_MANAGER:
@@ -7576,6 +7636,8 @@ EditorNode::EditorNode() {
 	EditorUndoRedoManager::get_singleton()->connect("history_changed", callable_mp(this, &EditorNode::_update_undo_redo_allowed));
 	EditorUndoRedoManager::get_singleton()->connect("history_changed", callable_mp(this, &EditorNode::_update_unsaved_cache));
 	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &EditorNode::_update_from_settings));
+	mounted_packs_configuration = PackedData::get_singleton()->get_configured_read_only_packs();
+	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &EditorNode::_check_mounted_packs_setting));
 	GDExtensionManager::get_singleton()->connect("extensions_reloaded", callable_mp(this, &EditorNode::_gdextensions_reloaded));
 
 	TranslationServer::get_singleton()->get_main_domain()->set_enabled(false);
@@ -8164,6 +8226,8 @@ EditorNode::EditorNode() {
 	tool_menu->add_shortcut(ED_SHORTCUT_AND_COMMAND("editor/upgrade_project", TTRC("Upgrade Project Files...")), TOOLS_PROJECT_UPGRADE);
 
 	project_menu->add_separator();
+	project_menu->add_shortcut(ED_SHORTCUT("editor/remount_read_only_packs", TTRC("Remount Read-Only Packs")), PROJECT_REMOUNT_READ_ONLY_PACKS);
+	project_menu->set_item_tooltip(project_menu->get_item_count() - 1, TTRC("Mounts the packs in editor/mounted_packs/paths and --mount-pack again, e.g. after a pack changed on disk."));
 	project_menu->add_shortcut(ED_SHORTCUT("editor/reload_current_project", TTRC("Reload Current Project")), PROJECT_RELOAD_CURRENT_PROJECT);
 	ED_SHORTCUT_AND_COMMAND("editor/quit_to_project_list", TTRC("Quit to Project List"), KeyModifierMask::CTRL + KeyModifierMask::SHIFT + Key::Q);
 	ED_SHORTCUT_OVERRIDE("editor/quit_to_project_list", "macos", KeyModifierMask::META + KeyModifierMask::CTRL + KeyModifierMask::ALT + Key::Q);

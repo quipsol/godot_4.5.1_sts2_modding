@@ -167,6 +167,7 @@ public:
 		PROJECT_PACK_AS_ZIP,
 		PROJECT_INSTALL_ANDROID_SOURCE,
 		PROJECT_OPEN_USER_DATA_FOLDER,
+		PROJECT_REMOUNT_READ_ONLY_PACKS,
 		PROJECT_RELOAD_CURRENT_PROJECT,
 		PROJECT_QUIT_TO_PROJECT_MANAGER,
 
@@ -623,6 +624,10 @@ private:
 
 	void _update_vsync_mode();
 	void _update_from_settings();
+
+	Vector<String> mounted_packs_configuration; // Packs mounted by the last (re)mount, to remount when the setting changes them.
+	void _check_mounted_packs_setting();
+	void _remount_read_only_packs();
 	void _gdextensions_reloaded();
 	void _update_translations();
 	void _translation_resources_changed();

@@ -235,6 +235,11 @@ bool ResourceUID::add_mounted_id(ID p_id, const CharString &p_path) {
 	return true;
 }
 
+void ResourceUID::clear_mounted_ids() {
+	MutexLock l(mutex);
+	mounted_ids.clear();
+}
+
 String ResourceUID::uid_to_path(const String &p_uid) {
 	return singleton->get_id_path(singleton->text_to_id(p_uid));
 }

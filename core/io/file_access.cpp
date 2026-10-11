@@ -156,15 +156,10 @@ Error FileAccess::reopen(const String &p_path, int p_mode_flags) {
 }
 
 Ref<FileAccess> FileAccess::open(const String &p_path, int p_mode_flags, Error *r_error) {
+	// Writing a read-only mounted pack's path creates a project file that replaces the pack's file from then on.
+	String shadowed_pack;
 	if ((p_mode_flags & WRITE) && PackedData::get_singleton() && PackedData::get_singleton()->has_read_only_mounts()) {
-		// Writing would create a project copy that shadows the mounted pack's file.
-		const String pack = PackedData::get_singleton()->get_write_protecting_pack(p_path);
-		if (!pack.is_empty()) {
-			if (r_error) {
-				*r_error = ERR_FILE_NO_PERMISSION;
-			}
-			ERR_FAIL_V_MSG(Ref<FileAccess>(), vformat("Can't write \"%s\": it comes from the read-only mounted pack \"%s\".", p_path, pack));
-		}
+		shadowed_pack = PackedData::get_singleton()->get_pack_shadowed_by_writing(p_path);
 	}
 
 	//try packed data first
@@ -188,6 +183,8 @@ Ref<FileAccess> FileAccess::open(const String &p_path, int p_mode_flags, Error *
 	}
 	if (err != OK) {
 		ret.unref();
+	} else if (!shadowed_pack.is_empty()) {
+		PackedData::get_singleton()->warn_shadowed(p_path, shadowed_pack);
 	}
 
 	return ret;

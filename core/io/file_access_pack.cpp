@@ -47,7 +47,23 @@ Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t 
 	return ERR_FILE_UNRECOGNIZED;
 }
 
+void PackedData::_lock_mounts_for_writing() {
+	read_only_lock_enabled = true; // From now on, lookups lock (see MountsReadLock).
+	read_only_lock.write_lock();
+	read_only_lock_writer.set(Thread::get_caller_id());
+}
+
+void PackedData::_unlock_mounts_for_writing() {
+	read_only_lock_writer.set(0);
+	read_only_lock.write_unlock();
+}
+
 Error PackedData::mount_read_only_pack(const String &p_path) {
+	if (mounted_read_only_packs.has(p_path)) {
+		return ERR_ALREADY_EXISTS;
+	}
+
+	_lock_mounts_for_writing();
 	read_only_disk_collisions.clear();
 	read_only_pack_collisions = 0;
 	has_read_only_uid_cache = false;
@@ -58,41 +74,152 @@ Error PackedData::mount_read_only_pack(const String &p_path) {
 	mounting_read_only = false;
 
 	if (err != OK) {
+		_unlock_mounts_for_writing();
 		ERR_PRINT(vformat("Could not mount pack \"%s\" read-only (%s).", p_path, error_names[err]));
 		return err;
 	}
 	read_only_mount_count++;
+	mounted_read_only_packs.push_back(p_path);
+	const int file_count = files.size() - files_before;
+	const Vector<String> all_disk_collisions = read_only_disk_collisions;
+	const int pack_collisions = read_only_pack_collisions;
+	read_only_disk_collisions.clear();
+	PackedFile uid_cache = read_only_uid_cache;
+	const bool has_uid_cache = has_read_only_uid_cache;
+	has_read_only_uid_cache = false;
+	// ResourceUID has its own lock and can look files up while holding it, so it's only called after unlocking.
+	_unlock_mounts_for_writing();
 
-	int uid_count = 0;
-	if (has_read_only_uid_cache) {
-		uid_count = _register_read_only_uids(p_path);
-		has_read_only_uid_cache = false;
+	const int uid_count = has_uid_cache ? _register_read_only_uids(uid_cache, p_path) : 0;
+
+	print_line(vformat("Mounted pack \"%s\" read-only: %d files, %d UIDs.", p_path, file_count, uid_count));
+	// The project's own imported data under .godot/ often shares names with the pack's (same source path); that's routine.
+	Vector<String> disk_collisions;
+	for (const String &path : all_disk_collisions) {
+		if (path.begins_with(".godot/")) {
+			print_verbose(vformat("  Skipped (the project has its own imported data): res://%s", path));
+		} else {
+			disk_collisions.push_back(path);
+		}
 	}
-
-	print_line(vformat("Mounted pack \"%s\" read-only: %d files, %d UIDs.", p_path, files.size() - files_before, uid_count));
-	if (!read_only_disk_collisions.is_empty()) {
+	if (!disk_collisions.is_empty()) {
 		// One summary instead of a warning per file: with the game's pack this can be thousands of files.
 		String examples;
 		const int max_examples = 5;
-		for (int i = 0; i < MIN(max_examples, read_only_disk_collisions.size()); i++) {
-			examples += "\n    res://" + read_only_disk_collisions[i];
+		for (int i = 0; i < MIN(max_examples, disk_collisions.size()); i++) {
+			examples += "\n    res://" + disk_collisions[i];
 		}
-		if (read_only_disk_collisions.size() > max_examples) {
-			examples += vformat("\n    ... and %d more (run with --verbose to list all).", read_only_disk_collisions.size() - max_examples);
+		if (disk_collisions.size() > max_examples) {
+			examples += vformat("\n    ... and %d more (run with --verbose to list all).", disk_collisions.size() - max_examples);
 		}
-		WARN_PRINT(vformat("Mounted pack \"%s\": skipped %d files that also exist in the project (the project's files are used):%s", p_path, read_only_disk_collisions.size(), examples));
-		for (const String &path : read_only_disk_collisions) {
+		WARN_PRINT(vformat("Mounted pack \"%s\": skipped %d files that also exist in the project (the project's files are used):%s", p_path, disk_collisions.size(), examples));
+		for (const String &path : disk_collisions) {
 			print_verbose(vformat("  Skipped (exists in project): res://%s", path));
 		}
 	}
-	if (read_only_pack_collisions > 0) {
-		print_line(vformat("Mounted pack \"%s\": skipped %d files already provided by an earlier mounted pack.", p_path, read_only_pack_collisions));
+	if (pack_collisions > 0) {
+		print_line(vformat("Mounted pack \"%s\": skipped %d files already provided by an earlier mounted pack.", p_path, pack_collisions));
 	}
-	read_only_disk_collisions.clear();
 	return OK;
 }
 
-String PackedData::get_write_protecting_pack(const String &p_path) {
+void PackedData::add_command_line_read_only_pack(const String &p_path) {
+	if (!command_line_read_only_packs.has(p_path)) {
+		command_line_read_only_packs.push_back(p_path);
+	}
+}
+
+Vector<String> PackedData::get_configured_read_only_packs() const {
+	Vector<String> packs = command_line_read_only_packs;
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings && project_settings->has_setting("editor/mounted_packs/paths")) {
+		const PackedStringArray setting = project_settings->get_setting("editor/mounted_packs/paths");
+		for (const String &entry : setting) {
+			String path = entry.strip_edges();
+			if (path.is_empty()) {
+				continue;
+			}
+			// Relative paths are relative to the project folder.
+			path = project_settings->globalize_path(path);
+			if (path.is_relative_path()) {
+				path = project_settings->get_resource_path().path_join(path);
+			}
+			path = path.simplify_path();
+			if (!packs.has(path)) {
+				packs.push_back(path);
+			}
+		}
+	}
+	return packs;
+}
+
+void PackedData::mount_configured_read_only_packs() {
+	for (const String &pack : get_configured_read_only_packs()) {
+		mount_read_only_pack(pack);
+	}
+}
+
+void PackedData::unmount_read_only_packs() {
+	if (read_only_mount_count == 0) {
+		return;
+	}
+	const int pack_count = mounted_read_only_packs.size();
+	_lock_mounts_for_writing();
+	_remove_read_only_files(root, String());
+	_clear_read_only_state();
+	_unlock_mounts_for_writing();
+	ResourceUID::get_singleton()->clear_mounted_ids();
+	print_line(vformat("Unmounted %d read-only packs.", pack_count));
+}
+
+void PackedData::remount_read_only_packs() {
+	unmount_read_only_packs();
+	mount_configured_read_only_packs();
+	if (has_read_only_mounts()) {
+		// The editor disables PackedData when it starts without read-only mounts (see Main::setup()).
+		disabled = false;
+	}
+}
+
+bool PackedData::_remove_read_only_files(PackedDir *p_dir, const String &p_dir_path) {
+	bool removed_any = false;
+
+	Vector<String> emptied_subdirs;
+	for (const KeyValue<String, PackedDir *> &E : p_dir->subdirs) {
+		if (_remove_read_only_files(E.value, p_dir_path.path_join(E.key)) && E.value->files.is_empty() && E.value->subdirs.is_empty()) {
+			emptied_subdirs.push_back(E.key);
+		}
+	}
+	for (const String &name : emptied_subdirs) {
+		_free_packed_dirs(p_dir->subdirs[name]);
+		p_dir->subdirs.erase(name);
+		removed_any = true;
+	}
+
+	Vector<String> removed_files;
+	for (const String &file : p_dir->files) {
+		const PathMD5 pmd5(p_dir_path.path_join(file).md5_buffer());
+		HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(pmd5);
+		if (E && E->value.read_only) {
+			files.erase(pmd5);
+			removed_files.push_back(file);
+		}
+	}
+	for (const String &file : removed_files) {
+		p_dir->files.erase(file);
+	}
+	return removed_any || !removed_files.is_empty();
+}
+
+void PackedData::_clear_read_only_state() {
+	read_only_mount_count = 0;
+	mounted_read_only_packs.clear();
+	MutexLock lock(shadow_warning_mutex);
+	shadow_warnings.clear();
+	// The mounted UIDs are cleared by the callers after unlocking (see mount_read_only_pack() for why).
+}
+
+String PackedData::get_pack_shadowed_by_writing(const String &p_path) {
 	if (read_only_mount_count == 0) {
 		return String();
 	}
@@ -102,6 +229,7 @@ String PackedData::get_write_protecting_pack(const String &p_path) {
 	if (!path.begins_with("res://") || simplified_path.begins_with(".godot/")) {
 		return String();
 	}
+	MountsReadLock lock(this);
 	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(PathMD5(simplified_path.md5_buffer()));
 	if (!E || !E->value.read_only || _is_shadowed_by_disk(path)) {
 		return String();
@@ -109,9 +237,40 @@ String PackedData::get_write_protecting_pack(const String &p_path) {
 	return E->value.pack;
 }
 
-int PackedData::_register_read_only_uids(const String &p_pack_path) {
+bool PackedData::_yields_to_disk(const PackedFile &p_file, const String &p_path) {
+	if (!_is_shadowed_by_disk(p_path)) {
+		return false;
+	}
+	warn_shadowed(p_path, p_file.pack);
+	return true;
+}
+
+void PackedData::warn_shadowed(const String &p_path, const String &p_pack) {
+	String path = ProjectSettings::get_singleton()->localize_path(p_path).simplify_path();
+	if (path.trim_prefix("res://").begins_with(".godot/")) {
+		return; // The project's own cache (e.g. re-imported data of a project file); expected, not worth a warning.
+	}
+	// A sidecar (.import, .remap, .uid) of a pack's file is replaced because the project has the file it belongs to: report that file.
+	static const char *sidecar_extensions[] = { ".remap", ".import", ".uid" };
+	for (const char *extension : sidecar_extensions) {
+		if (path.ends_with(extension) && !_file_exists_on_disk(path)) {
+			path = path.trim_suffix(extension);
+			break;
+		}
+	}
+	{
+		MutexLock lock(shadow_warning_mutex);
+		if (shadow_warnings.has(path)) {
+			return;
+		}
+		shadow_warnings.insert(path);
+	}
+	WARN_PRINT(vformat("\"%s\" exists in the project now and replaces the file from the read-only mounted pack \"%s\".", path, p_pack));
+}
+
+int PackedData::_register_read_only_uids(PackedFile p_uid_cache, const String &p_pack_path) {
 	// Same format as ResourceUID::save_to_cache(): entry count, then (id, path length, utf8 path) per entry.
-	Ref<FileAccess> f = read_only_uid_cache.src->get_file("res://.godot/uid_cache.bin", &read_only_uid_cache);
+	Ref<FileAccess> f = p_uid_cache.src->get_file("res://.godot/uid_cache.bin", &p_uid_cache);
 	ERR_FAIL_COND_V_MSG(f.is_null(), 0, vformat("Mounted pack \"%s\": could not read its UID cache.", p_pack_path));
 
 	int registered = 0;
@@ -301,9 +460,19 @@ void PackedData::_get_file_paths(PackedDir *p_dir, const String &p_parent_dir, H
 }
 
 void PackedData::clear() {
+	const bool had_read_only_mounts = read_only_mount_count > 0;
+	if (had_read_only_mounts) {
+		_lock_mounts_for_writing();
+	}
 	files.clear();
 	_free_packed_dirs(root);
 	root = memnew(PackedDir);
+	if (had_read_only_mounts) {
+		// The read-only mounts are gone too (callers like the patch export remount them afterwards).
+		_clear_read_only_state();
+		_unlock_mounts_for_writing();
+		ResourceUID::get_singleton()->clear_mounted_ids();
+	}
 }
 
 PackedData::PackedData() {

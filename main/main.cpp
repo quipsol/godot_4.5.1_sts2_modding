@@ -39,6 +39,7 @@
 #include "core/extension/gdextension_manager.h"
 #include "core/input/input.h"
 #include "core/input/input_map.h"
+#include "core/io/config_file.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access_pack.h"
 #include "core/io/file_access_zip.h"
@@ -306,6 +307,16 @@ bool Main::is_cmdline_tool() {
 const Vector<String> &Main::get_forwardable_cli_arguments(Main::CLIScope p_scope) {
 	return forwardable_cli_arguments[p_scope];
 }
+
+// --mount-pack paths are relative to the directory the command was run from, so they are resolved
+// while parsing (--path changes the working directory to the project).
+static String _resolve_mount_pack_path(const String &p_path) {
+	String path = p_path.replace_char('\\', '/');
+	if (path.is_relative_path()) {
+		path = DirAccess::create(DirAccess::ACCESS_FILESYSTEM)->get_current_dir().path_join(path);
+	}
+	return path.simplify_path();
+}
 #endif
 
 static String unescape_cmdline(const String &p_str) {
@@ -559,6 +570,7 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--scene <path>", "Path or UID of a scene in the project that should be started.\n");
 	print_help_option("-u, --upwards", "Scan folders upwards for project.godot file.\n");
 	print_help_option("--main-pack <file>", "Path to a pack (.pck) file to load.\n");
+	print_help_option("--mount-pack <file>", "Mount a pack (.pck) read-only on top of the project, in the editor and in the project run from it. Can be repeated; mounted before the packs in editor/mounted_packs/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifdef DISABLE_DEPRECATED
 	print_help_option("--render-thread <mode>", "Render thread mode (\"safe\", \"separate\").\n");
 #else
@@ -1108,6 +1120,16 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(next_arg);
 				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(arg);
 				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(next_arg);
+			}
+		}
+		// Read-only packs apply to editor restarts and to the project run from the editor too.
+		if (arg == "--mount-pack") {
+			if (N) {
+				const String pack = _resolve_mount_pack_path(N->get());
+				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(arg);
+				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(pack);
+				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(arg);
+				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(pack);
 			}
 		}
 #endif
@@ -1731,6 +1753,17 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				goto error;
 			}
 
+#ifdef TOOLS_ENABLED
+		} else if (arg == "--mount-pack") {
+			if (N) {
+				packed_data->add_command_line_read_only_pack(_resolve_mount_pack_path(N->get()));
+				N = N->next();
+			} else {
+				OS::get_singleton()->print("Missing path to the pack to mount, aborting.\n");
+				goto error;
+			}
+#endif
+
 		} else if (arg == "-d" || arg == "--debug") {
 			debug_uri = "local://";
 			OS::get_singleton()->_debug_stdout = true;
@@ -2114,16 +2147,28 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		// Packs mounted read-only on top of the project (e.g. a game's pack and other mods' packs when modding).
 		// Applies to the editor and to the project run from it, so both resolve the same resources.
 		// Relative paths are relative to the project folder; machine-specific paths can go in override.cfg.
-		GLOBAL_DEF_RST(PropertyInfo(Variant::PACKED_STRING_ARRAY, "editor/mounted_packs/paths", PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.pck", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
+		// Changing the setting in the editor remounts the packs (see EditorNode).
+		const String setting = "editor/mounted_packs/paths";
+		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.pck", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
+
+		// The editor ignores override.cfg (so that its overrides are never saved into project.godot), but this setting is
+		// machine-specific and belongs there, so the editor reads it from override.cfg too. The editor saves every setting
+		// that differs from its default into project.godot; when the paths don't come from project.godot itself,
+		// they become the default, so they don't end up in project.godot either.
+		const String resource_path = ProjectSettings::get_singleton()->get_resource_path();
+		Ref<ConfigFile> override_file;
+		override_file.instantiate();
+		if (editor && override_file->load(resource_path.path_join("override.cfg")) == OK && override_file->has_section_key("editor", "mounted_packs/paths")) {
+			ProjectSettings::get_singleton()->set_setting(setting, override_file->get_value("editor", "mounted_packs/paths"));
+		}
+		Ref<ConfigFile> project_file;
+		project_file.instantiate();
+		if (project_file->load(resource_path.path_join("project.godot")) == OK && !project_file->has_section_key("editor", "mounted_packs/paths")) {
+			ProjectSettings::get_singleton()->set_initial_value(setting, GLOBAL_GET(setting));
+		}
+
 		if (!project_manager) {
-			const PackedStringArray mounted_packs = GLOBAL_GET("editor/mounted_packs/paths");
-			for (const String &pack : mounted_packs) {
-				String path = ProjectSettings::get_singleton()->globalize_path(pack.strip_edges());
-				if (path.is_relative_path()) {
-					path = ProjectSettings::get_singleton()->get_resource_path().path_join(path);
-				}
-				packed_data->mount_read_only_pack(path.simplify_path());
-			}
+			packed_data->mount_configured_read_only_packs();
 		}
 	}
 

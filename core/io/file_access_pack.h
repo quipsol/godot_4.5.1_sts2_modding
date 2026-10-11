@@ -32,7 +32,11 @@
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/os/mutex.h"
+#include "core/os/rw_lock.h"
+#include "core/os/thread.h"
 #include "core/string/print_string.h"
+#include "core/templates/safe_refcount.h"
 #include "core/templates/hash_set.h"
 #include "core/templates/list.h"
 
@@ -115,12 +119,48 @@ private:
 	// Read-only mounts (see mount_read_only_pack()).
 	bool mounting_read_only = false; // True while mount_read_only_pack() is parsing a pack.
 	int read_only_mount_count = 0;
+	Vector<String> mounted_read_only_packs; // In mount order.
+	Vector<String> command_line_read_only_packs; // From --mount-pack.
 	Vector<String> read_only_disk_collisions; // Files skipped during the current mount because they exist on disk.
 	int read_only_pack_collisions = 0; // Files skipped during the current mount because an earlier pack provided them.
 	PackedFile read_only_uid_cache; // The current mount's .godot/uid_cache.bin, read after parsing.
 	bool has_read_only_uid_cache = false;
 
-	int _register_read_only_uids(const String &p_pack_path);
+	// Read-only mounts can be remounted while other threads (file system scans, previews, threaded loads) look files up,
+	// so once they exist, the index is guarded. The thread that is mounting doesn't lock again: opening the .pck
+	// goes through FileAccess::open(), which looks the path up here.
+	mutable RWLock read_only_lock;
+	bool read_only_lock_enabled = false;
+	SafeNumeric<uint64_t> read_only_lock_writer;
+
+	class MountsReadLock {
+		const PackedData *packed_data;
+		bool locked;
+
+	public:
+		_FORCE_INLINE_ MountsReadLock(const PackedData *p_packed_data) :
+				packed_data(p_packed_data),
+				locked(p_packed_data->read_only_lock_enabled && p_packed_data->read_only_lock_writer.get() != Thread::get_caller_id()) {
+			if (locked) {
+				packed_data->read_only_lock.read_lock();
+			}
+		}
+		_FORCE_INLINE_ ~MountsReadLock() {
+			if (locked) {
+				packed_data->read_only_lock.read_unlock();
+			}
+		}
+	};
+	void _lock_mounts_for_writing();
+	void _unlock_mounts_for_writing();
+
+	Mutex shadow_warning_mutex;
+	HashSet<String> shadow_warnings; // Mounted paths already reported as replaced by a project file.
+
+	int _register_read_only_uids(PackedFile p_uid_cache, const String &p_pack_path);
+	bool _remove_read_only_files(PackedDir *p_dir, const String &p_dir_path); // Returns true if anything was removed.
+	void _clear_read_only_state();
+	bool _yields_to_disk(const PackedFile &p_file, const String &p_path); // Read-only entry shadowed by a project file (warns once).
 
 	void _free_packed_dirs(PackedDir *p_dir);
 	void _get_file_paths(PackedDir *p_dir, const String &p_parent_dir, HashSet<String> &r_paths) const;
@@ -143,15 +183,23 @@ public:
 	static PackedData *get_singleton() { return singleton; }
 	Error add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset);
 
-	// Mounts a pack on top of the project without taking it over: unlike ProjectSettings::load_resource_pack(),
-	// res:// is not snapshotted and directory access stays on disk. Files that exist on disk are skipped
-	// (the project wins), and lookups keep preferring the disk for anything created later.
+	// Read-only mounts: packs mounted on top of the project without taking it over. Unlike ProjectSettings::load_resource_pack(),
+	// res:// is not snapshotted and directory access stays on disk. A file that exists in the project always wins over a
+	// pack's file at the same path, also when it is created later (it "shadows" the pack's file, with a warning).
+	// The packs' UIDs are registered with ResourceUID, but never saved to the project's cache.
 	Error mount_read_only_pack(const String &p_path);
+	void add_command_line_read_only_pack(const String &p_path); // From --mount-pack (absolute path).
+	Vector<String> get_configured_read_only_packs() const; // --mount-pack packs first, then editor/mounted_packs/paths.
+	void mount_configured_read_only_packs();
+	void unmount_read_only_packs(); // Removes only the read-only mounts and their UIDs.
+	void remount_read_only_packs(); // Unmounts, then mounts the configured packs again (e.g. after a pack changed on disk).
+	const Vector<String> &get_mounted_read_only_packs() const { return mounted_read_only_packs; }
 	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
 	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
-	// The read-only mounted pack that writing p_path would shadow, or an empty string if writing is allowed.
-	// Paths under .godot/ are always writable: that is the project's own cache (e.g. imported data of a project file).
-	String get_write_protecting_pack(const String &p_path);
+	// The read-only mounted pack whose file a write to p_path would shadow, or an empty string.
+	// Paths under .godot/ never count: that is the project's own cache (e.g. imported data of a project file).
+	String get_pack_shadowed_by_writing(const String &p_path);
+	void warn_shadowed(const String &p_path, const String &p_pack); // Reports once per path that the project now replaces a pack's file.
 
 	void clear();
 
@@ -239,6 +287,7 @@ public:
 int64_t PackedData::get_size(const String &p_path) {
 	String simplified_path = p_path.simplify_path();
 	PathMD5 pmd5(simplified_path.md5_buffer());
+	MountsReadLock lock(this);
 	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(pmd5);
 	if (!E) {
 		return -1; // File not found.
@@ -252,24 +301,31 @@ int64_t PackedData::get_size(const String &p_path) {
 Ref<FileAccess> PackedData::try_open_path(const String &p_path) {
 	String simplified_path = p_path.simplify_path().trim_prefix("res://");
 	PathMD5 pmd5(simplified_path.md5_buffer());
-	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(pmd5);
-	if (!E) {
-		return nullptr; // Not found.
-	}
-	if (E->value.read_only && _is_shadowed_by_disk(p_path)) {
-		return nullptr; // Created on disk after mounting; the project wins.
+	PackedFile file;
+	{
+		MountsReadLock lock(this);
+		HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(pmd5);
+		if (!E) {
+			return nullptr; // Not found.
+		}
+		if (E->value.read_only && _yields_to_disk(E->value, p_path)) {
+			return nullptr; // The project has this file now; it wins.
+		}
+		file = E->value; // Copied, so the file is opened without holding the lock.
 	}
 
-	return E->value.src->get_file(p_path, &E->value);
+	return file.src->get_file(p_path, &file);
 }
 
 bool PackedData::has_path(const String &p_path) {
-	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(PathMD5(p_path.simplify_path().trim_prefix("res://").md5_buffer()));
+	const PathMD5 pmd5(p_path.simplify_path().trim_prefix("res://").md5_buffer());
+	MountsReadLock lock(this);
+	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(pmd5);
 	if (!E) {
 		return false;
 	}
-	if (E->value.read_only && _is_shadowed_by_disk(p_path)) {
-		return false; // Created on disk after mounting; the project wins.
+	if (E->value.read_only && _yields_to_disk(E->value, p_path)) {
+		return false; // The project has this file now; it wins.
 	}
 	return true;
 }
@@ -278,11 +334,14 @@ bool PackedData::is_read_only_path(const String &p_path) {
 	if (read_only_mount_count == 0) {
 		return false;
 	}
-	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(PathMD5(p_path.simplify_path().trim_prefix("res://").md5_buffer()));
-	return E && E->value.read_only && !_is_shadowed_by_disk(p_path);
+	const PathMD5 pmd5(p_path.simplify_path().trim_prefix("res://").md5_buffer());
+	MountsReadLock lock(this);
+	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(pmd5);
+	return E && E->value.read_only && !_yields_to_disk(E->value, p_path);
 }
 
 bool PackedData::has_directory(const String &p_path) {
+	MountsReadLock lock(this);
 	if (read_only_mount_count > 0 && _dir_exists_on_disk(p_path)) {
 		// Folders that exist in the project and in a mounted pack (e.g. res://scenes) are the project's,
 		// so modified times and permissions come from the disk.

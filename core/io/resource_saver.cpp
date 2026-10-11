@@ -107,8 +107,10 @@ Error ResourceSaver::save(const Ref<Resource> &p_resource, const String &p_path,
 	ERR_FAIL_COND_V_MSG(path.is_empty(), ERR_INVALID_PARAMETER, "Can't save resource to empty path. Provide non-empty path or a Resource with non-empty resource_path.");
 
 	if (PackedData::get_singleton() && PackedData::get_singleton()->has_read_only_mounts()) {
-		const String pack = PackedData::get_singleton()->get_write_protecting_pack(path);
-		ERR_FAIL_COND_V_MSG(!pack.is_empty(), ERR_FILE_NO_PERMISSION,
+		// Saving a resource that was loaded from a read-only mounted pack back to its own path is refused: the pack is read-only.
+		// Saving anything else to a pack's path is allowed; the project's file replaces the pack's (FileAccess::open() warns).
+		const String pack = PackedData::get_singleton()->get_pack_shadowed_by_writing(path);
+		ERR_FAIL_COND_V_MSG(!pack.is_empty() && ProjectSettings::get_singleton()->localize_path(path) == p_resource->get_path(), ERR_FILE_NO_PERMISSION,
 				vformat("Can't save resource to \"%s\": it comes from the read-only mounted pack \"%s\". Save it to another path in the project instead (e.g. with Save As).", path, pack));
 	}
 
