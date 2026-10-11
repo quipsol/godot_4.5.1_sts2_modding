@@ -96,9 +96,11 @@ class MountedPacksDock : public VBoxContainer {
 	void _on_item_mouse_selected(const Vector2 &p_position, MouseButton p_button);
 	void _on_context_menu_id_pressed(int p_option);
 	Variant _get_drag_data_fw(const Point2 &p_point, Control *p_from);
+	void _thumbnail_done(const String &p_path, const Ref<Texture2D> &p_preview, const Ref<Texture2D> &p_small_preview, const Variant &p_item);
 
 protected:
 	void _notification(int p_what);
+	static void _bind_methods();
 
 public:
 	static MountedPacksDock *get_singleton() { return singleton; }

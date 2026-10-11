@@ -36,6 +36,7 @@
 #include "editor/docks/inspector_dock.h"
 #include "editor/editor_node.h"
 #include "editor/inspector/editor_inspector.h"
+#include "editor/inspector/editor_resource_preview.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
@@ -161,6 +162,8 @@ TreeItem *MountedPacksDock::_create_item(TreeItem *p_parent, int p_entry, bool p
 			const String type = ResourceLoader::get_resource_type(entry.path);
 			item->set_icon(0, type.is_empty() ? get_editor_theme_icon(SNAME("File")) : EditorNode::get_singleton()->get_class_icon(type, "File"));
 			item->set_tooltip_text(0, type.is_empty() ? entry.path : vformat("%s\n%s", entry.path, type));
+			// Like the FileSystem dock: a small preview (e.g. of an image) replaces the icon once it's generated.
+			EditorResourcePreview::get_singleton()->queue_resource_preview(entry.path, this, "_thumbnail_done", uint64_t(item->get_instance_id()));
 		} break;
 	}
 
@@ -367,6 +370,18 @@ Variant MountedPacksDock::_get_drag_data_fw(const Point2 &p_point, Control *p_fr
 		return Variant();
 	}
 	return EditorNode::get_singleton()->drag_files_and_dirs(files, p_from);
+}
+
+void MountedPacksDock::_thumbnail_done(const String &p_path, const Ref<Texture2D> &p_preview, const Ref<Texture2D> &p_small_preview, const Variant &p_item) {
+	TreeItem *item = ObjectDB::get_instance<TreeItem>(ObjectID(uint64_t(p_item)));
+	if (item && p_small_preview.is_valid()) {
+		item->set_icon(0, p_small_preview); // The item may be gone if the tree was rebuilt meanwhile.
+	}
+}
+
+void MountedPacksDock::_bind_methods() {
+	// Called by name by EditorResourcePreview.
+	ClassDB::bind_method(D_METHOD("_thumbnail_done", "path", "preview", "small_preview", "item"), &MountedPacksDock::_thumbnail_done);
 }
 
 void MountedPacksDock::_notification(int p_what) {

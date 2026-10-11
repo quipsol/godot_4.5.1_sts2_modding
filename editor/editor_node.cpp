@@ -2102,9 +2102,9 @@ int EditorNode::_save_external_resources(bool p_also_save_external_data) {
 			if (packed_data->get_pack_shadowed_by_writing(path).is_empty()) {
 				continue;
 			}
-			// Scenes are never saved here (see below), so they're not worth a warning.
-			Ref<PackedScene> scene = ResourceCache::get_ref(path);
-			if (scene.is_null()) {
+			// Only what the loop below would actually save: it skips resources that aren't cached and scenes.
+			const Ref<Resource> resource = ResourceCache::get_ref(path);
+			if (resource.is_valid() && !Object::cast_to<PackedScene>(resource.ptr())) {
 				read_only.push_back(path);
 			}
 		}
