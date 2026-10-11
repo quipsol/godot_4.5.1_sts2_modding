@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/io/file_access_encrypted.h"
+#include "core/io/resource_uid.h"
 #include "core/object/script_language.h"
 #include "core/os/os.h"
 #include "core/version.h"
@@ -49,6 +50,7 @@ Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t 
 Error PackedData::mount_read_only_pack(const String &p_path) {
 	read_only_disk_collisions.clear();
 	read_only_pack_collisions = 0;
+	has_read_only_uid_cache = false;
 	int files_before = files.size();
 
 	mounting_read_only = true;
@@ -61,7 +63,13 @@ Error PackedData::mount_read_only_pack(const String &p_path) {
 	}
 	read_only_mount_count++;
 
-	print_line(vformat("Mounted pack \"%s\" read-only: %d files.", p_path, files.size() - files_before));
+	int uid_count = 0;
+	if (has_read_only_uid_cache) {
+		uid_count = _register_read_only_uids(p_path);
+		has_read_only_uid_cache = false;
+	}
+
+	print_line(vformat("Mounted pack \"%s\" read-only: %d files, %d UIDs.", p_path, files.size() - files_before, uid_count));
 	if (!read_only_disk_collisions.is_empty()) {
 		// One summary instead of a warning per file: with the game's pack this can be thousands of files.
 		String examples;
@@ -82,6 +90,29 @@ Error PackedData::mount_read_only_pack(const String &p_path) {
 	}
 	read_only_disk_collisions.clear();
 	return OK;
+}
+
+int PackedData::_register_read_only_uids(const String &p_pack_path) {
+	// Same format as ResourceUID::save_to_cache(): entry count, then (id, path length, utf8 path) per entry.
+	Ref<FileAccess> f = read_only_uid_cache.src->get_file("res://.godot/uid_cache.bin", &read_only_uid_cache);
+	ERR_FAIL_COND_V_MSG(f.is_null(), 0, vformat("Mounted pack \"%s\": could not read its UID cache.", p_pack_path));
+
+	int registered = 0;
+	const uint32_t entry_count = f->get_32();
+	for (uint32_t i = 0; i < entry_count; i++) {
+		const ResourceUID::ID id = f->get_64();
+		const int32_t len = f->get_32();
+		CharString cs;
+		cs.resize_uninitialized(len + 1);
+		ERR_FAIL_COND_V(cs.size() != len + 1, registered); // Out of memory.
+		cs[len] = 0;
+		ERR_FAIL_COND_V_MSG(f->get_buffer((uint8_t *)cs.ptrw(), len) != (uint64_t)len, registered,
+				vformat("Mounted pack \"%s\": its UID cache is truncated.", p_pack_path));
+		if (ResourceUID::get_singleton()->add_mounted_id(id, cs)) {
+			registered++;
+		}
+	}
+	return registered;
 }
 
 bool PackedData::_is_excluded_from_read_only_mount(const String &p_simplified_path) {
@@ -129,7 +160,25 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 
 	bool exists = files.has(pmd5);
 
+	PackedFile pf;
+	pf.read_only = mounting_read_only;
+	pf.encrypted = p_encrypted;
+	pf.bundle = p_bundle;
+	pf.pack = p_pkg_path;
+	pf.offset = p_ofs;
+	pf.size = p_size;
+	for (int i = 0; i < 16; i++) {
+		pf.md5[i] = p_md5[i];
+	}
+	pf.src = p_src;
+
 	if (mounting_read_only) {
+		if (simplified_path == ".godot/uid_cache.bin") {
+			// Not mounted (the project has its own cache), but mount_read_only_pack() registers its UIDs.
+			read_only_uid_cache = pf;
+			has_read_only_uid_cache = true;
+			return;
+		}
 		if (_is_excluded_from_read_only_mount(simplified_path)) {
 			return;
 		}
@@ -142,18 +191,6 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 			return;
 		}
 	}
-
-	PackedFile pf;
-	pf.read_only = mounting_read_only;
-	pf.encrypted = p_encrypted;
-	pf.bundle = p_bundle;
-	pf.pack = p_pkg_path;
-	pf.offset = p_ofs;
-	pf.size = p_size;
-	for (int i = 0; i < 16; i++) {
-		pf.md5[i] = p_md5[i];
-	}
-	pf.src = p_src;
 
 	if (!exists || p_replace_files) {
 		files[pmd5] = pf;

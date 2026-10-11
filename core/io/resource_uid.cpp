@@ -122,7 +122,7 @@ ResourceUID::ID ResourceUID::create_id() {
 		Error err = ((CryptoCore::RandomGenerator *)crypto)->get_random_bytes((uint8_t *)&id, sizeof(id));
 		ERR_FAIL_COND_V(err != OK, INVALID_ID);
 		id &= 0x7FFFFFFFFFFFFFFF;
-		bool exists = unique_ids.has(id);
+		bool exists = unique_ids.has(id) || mounted_ids.has(id);
 		if (!exists) {
 			return id;
 		}
@@ -142,7 +142,7 @@ ResourceUID::ID ResourceUID::create_id_for_path(const String &p_path) {
 		id = (num1 | num2) & 0x7FFFFFFFFFFFFFFF;
 
 		MutexLock lock(mutex);
-		if (!unique_ids.has(id)) {
+		if (!unique_ids.has(id) && !mounted_ids.has(id)) {
 			break;
 		}
 	}
@@ -151,7 +151,7 @@ ResourceUID::ID ResourceUID::create_id_for_path(const String &p_path) {
 
 bool ResourceUID::has_id(ID p_id) const {
 	MutexLock l(mutex);
-	return unique_ids.has(p_id);
+	return unique_ids.has(p_id) || mounted_ids.has(p_id);
 }
 
 void ResourceUID::add_id(ID p_id, const String &p_path) {
@@ -165,6 +165,14 @@ void ResourceUID::add_id(ID p_id, const String &p_path) {
 
 void ResourceUID::set_id(ID p_id, const String &p_path) {
 	MutexLock l(mutex);
+	if (!unique_ids.has(p_id) && mounted_ids.has(p_id)) {
+		// has_id() reported a mounted pack's UID; a project file using it claims it (the project wins).
+		Cache c;
+		c.cs = p_path.utf8();
+		unique_ids[p_id] = c;
+		changed = true;
+		return;
+	}
 	ERR_FAIL_COND(!unique_ids.has(p_id));
 	CharString cs = p_path.utf8();
 	const char *update_ptr = cs.ptr();
@@ -196,6 +204,14 @@ String ResourceUID::get_id_path(ID p_id) const {
 	}
 #endif
 
+	if (!cache) {
+		// Mounted packs are consulted last, so a project file always wins over a pack using the same UID.
+		const CharString *mounted_path = mounted_ids.getptr(p_id);
+		if (mounted_path) {
+			return String::utf8(mounted_path->ptr());
+		}
+	}
+
 	ERR_FAIL_COND_V_MSG(!cache, String(), vformat("Unrecognized UID: \"%s\".", id_to_text(p_id)));
 	const CharString &cs = cache->cs;
 	return String::utf8(cs.ptr());
@@ -203,8 +219,20 @@ String ResourceUID::get_id_path(ID p_id) const {
 
 void ResourceUID::remove_id(ID p_id) {
 	MutexLock l(mutex);
+	if (!unique_ids.has(p_id) && mounted_ids.has(p_id)) {
+		return; // Mounted packs are read-only; their UIDs stay registered.
+	}
 	ERR_FAIL_COND(!unique_ids.has(p_id));
 	unique_ids.erase(p_id);
+}
+
+bool ResourceUID::add_mounted_id(ID p_id, const CharString &p_path) {
+	MutexLock l(mutex);
+	if (mounted_ids.has(p_id)) {
+		return false; // An earlier mounted pack wins, like for files (see PackedData::add_path()).
+	}
+	mounted_ids[p_id] = p_path;
+	return true;
 }
 
 String ResourceUID::uid_to_path(const String &p_uid) {
@@ -347,6 +375,7 @@ String ResourceUID::get_path_from_cache(Ref<FileAccess> &p_cache_file, const Str
 }
 
 void ResourceUID::clear() {
+	// mounted_ids are kept: they belong to the mounted packs, not to the project's cache being rebuilt.
 	cache_entries = 0;
 	unique_ids.clear();
 	changed = false;

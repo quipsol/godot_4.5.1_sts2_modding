@@ -55,6 +55,9 @@ private:
 	};
 
 	HashMap<ID, Cache> unique_ids; //unique IDs and utf8 paths (less memory used)
+	// UIDs from packs mounted read-only (PackedData::mount_read_only_pack()). Kept apart from unique_ids so they are
+	// never written to the project's cache and survive its reloads; the project's own UIDs always take priority.
+	HashMap<ID, CharString> mounted_ids;
 	static ResourceUID *singleton;
 
 	uint32_t cache_entries = 0;
@@ -76,6 +79,7 @@ public:
 	void set_id(ID p_id, const String &p_path);
 	String get_id_path(ID p_id) const;
 	void remove_id(ID p_id);
+	bool add_mounted_id(ID p_id, const CharString &p_path); // Returns false if an earlier mounted pack already registered p_id.
 
 	static String uid_to_path(const String &p_uid);
 	static String path_to_uid(const String &p_path);

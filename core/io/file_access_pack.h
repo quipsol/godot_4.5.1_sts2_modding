@@ -117,6 +117,10 @@ private:
 	int read_only_mount_count = 0;
 	Vector<String> read_only_disk_collisions; // Files skipped during the current mount because they exist on disk.
 	int read_only_pack_collisions = 0; // Files skipped during the current mount because an earlier pack provided them.
+	PackedFile read_only_uid_cache; // The current mount's .godot/uid_cache.bin, read after parsing.
+	bool has_read_only_uid_cache = false;
+
+	int _register_read_only_uids(const String &p_pack_path);
 
 	void _free_packed_dirs(PackedDir *p_dir);
 	void _get_file_paths(PackedDir *p_dir, const String &p_parent_dir, HashSet<String> &r_paths) const;
