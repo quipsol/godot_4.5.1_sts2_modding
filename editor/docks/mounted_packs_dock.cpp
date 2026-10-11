@@ -30,10 +30,16 @@
 
 #include "mounted_packs_dock.h"
 
+#include "core/config/project_settings.h"
 #include "core/io/file_access_pack.h"
+#include "core/io/image.h"
 #include "core/io/resource_loader.h"
+#include "core/io/resource_saver.h"
 #include "core/io/resource_uid.h"
+#include "editor/docks/filesystem_dock.h"
 #include "editor/docks/inspector_dock.h"
+#include "editor/file_system/editor_file_system.h"
+#include "editor/gui/editor_file_dialog.h"
 #include "editor/editor_node.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/inspector/editor_resource_preview.h"
@@ -314,11 +320,25 @@ void MountedPacksDock::_on_item_mouse_selected(const Vector2 &p_position, MouseB
 	if (files.is_empty()) {
 		return;
 	}
+	bool all_scenes = true;
+	for (const String &file : files) {
+		all_scenes = all_scenes && ResourceLoader::get_resource_type(file) == "PackedScene";
+	}
+
 	context_menu->clear();
 	if (files.size() == 1) {
 		context_menu->add_icon_item(get_editor_theme_icon(SNAME("Load")), TTRC("Open"), CONTEXT_OPEN);
-		context_menu->add_separator();
 	}
+	if (all_scenes) {
+		if (files.size() == 1) {
+			context_menu->add_icon_item(get_editor_theme_icon(SNAME("CreateNewSceneFrom")), TTRC("New Inherited Scene"), CONTEXT_NEW_INHERITED_SCENE);
+		}
+		context_menu->add_icon_item(get_editor_theme_icon(SNAME("Instance")), TTRC("Instantiate"), CONTEXT_INSTANTIATE);
+	}
+	context_menu->add_separator();
+	context_menu->add_icon_item(get_editor_theme_icon(SNAME("Duplicate")), TTRC("Copy into Project..."), CONTEXT_COPY_INTO_PROJECT);
+	context_menu->set_item_tooltip(context_menu->get_item_count() - 1, TTRC("Copies the files into a project folder, as a base for your own versions."));
+	context_menu->add_separator();
 	context_menu->add_icon_item(get_editor_theme_icon(SNAME("ActionCopy")), TTRC("Copy Path"), CONTEXT_COPY_PATH);
 	context_menu->add_icon_item(get_editor_theme_icon(SNAME("Instance")), TTRC("Copy UID"), CONTEXT_COPY_UID);
 	if (files.size() == 1) {
@@ -337,6 +357,18 @@ void MountedPacksDock::_on_context_menu_id_pressed(int p_option) {
 			if (!files.is_empty()) {
 				_open_file(files[0]);
 			}
+		} break;
+		case CONTEXT_NEW_INHERITED_SCENE: {
+			if (!files.is_empty()) {
+				EditorNode::get_singleton()->load_scene(files[0], false, true);
+			}
+		} break;
+		case CONTEXT_INSTANTIATE: {
+			EditorNode::get_singleton()->request_instantiate_scenes(files);
+		} break;
+		case CONTEXT_COPY_INTO_PROJECT: {
+			files_to_copy = files;
+			copy_dialog->popup_file_dialog();
 		} break;
 		case CONTEXT_COPY_PATH: {
 			DisplayServer::get_singleton()->clipboard_set(String("\n").join(files));
@@ -360,6 +392,115 @@ void MountedPacksDock::_on_context_menu_id_pressed(int p_option) {
 				}
 			}
 		} break;
+	}
+}
+
+static Error _write_file(const String &p_path, const Vector<uint8_t> &p_data) {
+	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
+	if (file.is_null()) {
+		return ERR_CANT_CREATE;
+	}
+	file->store_buffer(p_data);
+	return OK;
+}
+
+String MountedPacksDock::_copy_file(const String &p_source, const String &p_dir, String &r_target) {
+	PackedData *packed_data = PackedData::get_singleton();
+	const String extension = p_source.get_extension().to_lower();
+	r_target = p_dir.path_join(p_source.get_file());
+
+	if (extension == "gd" || extension == "cs") {
+		return TTR("the pack has only a compiled script or a placeholder, not its source.");
+	}
+
+	Ref<Resource> resource;
+	Ref<Image> image;
+	PackedByteArray data;
+	const bool imported = packed_data->is_read_only_path(p_source + ".import");
+	if (imported) {
+		// The pack has the imported data, not the source file; write a source file the project can import again.
+		resource = ResourceLoader::load(p_source);
+		if (resource.is_null()) {
+			return TTR("it could not be loaded.");
+		}
+		const Ref<Texture2D> texture = resource;
+		if (texture.is_valid()) {
+			image = texture->get_image();
+			if (image.is_null() || image->is_empty()) {
+				return TTR("the texture has no image data.");
+			}
+			if (image->is_compressed()) {
+				image = image->duplicate();
+				if (image->decompress() != OK) {
+					return TTR("the texture's compressed data could not be decompressed.");
+				}
+			}
+			r_target = r_target.get_basename() + ".png";
+		} else if (resource->is_class("AudioStreamMP3") || resource->is_class("FontFile")) {
+			data = resource->get("data"); // The original file's bytes.
+			if (data.is_empty()) {
+				return TTR("it has no data to write.");
+			}
+		} else {
+			return vformat(TTR("imported %s resources can't be turned back into a source file."), resource->get_class());
+		}
+	}
+
+	if (FileAccess::exists(ProjectSettings::get_singleton()->globalize_path(r_target))) {
+		return vformat(TTR("%s already exists in the project."), r_target);
+	}
+
+	if (image.is_valid()) {
+		return image->save_png(r_target) == OK ? String() : TTR("the PNG could not be written.");
+	}
+	if (imported) {
+		return _write_file(r_target, data) == OK ? String() : TTR("the file could not be written.");
+	}
+	if (extension == "tscn" || extension == "scn" || extension == "tres" || extension == "res") {
+		// Saved instead of copied byte for byte, so the copy gets its own UID. With the pack's UID it would
+		// take over that UID, and the game's own references to it would load the copy.
+		resource = ResourceLoader::load(p_source);
+		if (resource.is_null()) {
+			return TTR("it could not be loaded.");
+		}
+		return ResourceSaver::save(resource, r_target) == OK ? String() : TTR("it could not be saved.");
+	}
+	return _write_file(r_target, FileAccess::get_file_as_bytes(p_source)) == OK ? String() : TTR("the file could not be written.");
+}
+
+void MountedPacksDock::_show_copy() {
+	if (!EditorFileSystem::get_singleton()->get_file_type(copied_to_show).is_empty()) {
+		FileSystemDock::get_singleton()->navigate_to_path(copied_to_show);
+	}
+	copied_to_show = String();
+}
+
+void MountedPacksDock::_copy_into_project(const String &p_dir) {
+	Vector<String> copied;
+	Vector<String> problems;
+	for (const String &source : files_to_copy) {
+		String target;
+		const String problem = _copy_file(source, p_dir, target);
+		if (problem.is_empty()) {
+			copied.push_back(target);
+		} else {
+			problems.push_back(vformat("%s: %s", source, problem));
+		}
+	}
+	files_to_copy.clear();
+
+	if (!copied.is_empty()) {
+		print_line(vformat("Copied %d files from read-only packs into %s.", copied.size(), p_dir));
+		// The FileSystem dock knows the copies only after the scan, so show the first one then.
+		copied_to_show = copied[0];
+		const Callable show_copy = callable_mp(this, &MountedPacksDock::_show_copy);
+		if (!EditorFileSystem::get_singleton()->is_connected("filesystem_changed", show_copy)) {
+			EditorFileSystem::get_singleton()->connect("filesystem_changed", show_copy, CONNECT_ONE_SHOT);
+		}
+		EditorFileSystem::get_singleton()->scan_changes();
+	}
+	if (!problems.is_empty()) {
+		EditorNode::get_singleton()->show_warning(vformat(TTR("Not copied:\n%s"), String("\n").join(problems)));
 	}
 }
 
@@ -452,6 +593,14 @@ MountedPacksDock::MountedPacksDock() {
 	add_child(filter_timer);
 	filter_timer->connect("timeout", callable_mp(this, &MountedPacksDock::_update_tree));
 	filter->connect(SceneStringName(text_changed), callable_mp(filter_timer, &Timer::start).bind(-1).unbind(1));
+
+	copy_dialog = memnew(EditorFileDialog);
+	copy_dialog->set_file_mode(EditorFileDialog::FILE_MODE_OPEN_DIR);
+	copy_dialog->set_access(EditorFileDialog::ACCESS_RESOURCES);
+	copy_dialog->set_title(TTRC("Copy into Project"));
+	copy_dialog->set_ok_button_text(TTRC("Copy Here"));
+	add_child(copy_dialog);
+	copy_dialog->connect("dir_selected", callable_mp(this, &MountedPacksDock::_copy_into_project));
 }
 
 MountedPacksDock::~MountedPacksDock() {

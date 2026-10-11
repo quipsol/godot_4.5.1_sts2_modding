@@ -33,6 +33,7 @@
 #include "scene/gui/box_container.h"
 
 class Button;
+class EditorFileDialog;
 class Label;
 class LineEdit;
 class PopupMenu;
@@ -72,9 +73,14 @@ class MountedPacksDock : public VBoxContainer {
 	Label *empty_label = nullptr;
 	PopupMenu *context_menu = nullptr;
 	Timer *filter_timer = nullptr;
+	EditorFileDialog *copy_dialog = nullptr;
+	Vector<String> files_to_copy;
 
 	enum ContextMenuOption {
 		CONTEXT_OPEN,
+		CONTEXT_NEW_INHERITED_SCENE,
+		CONTEXT_INSTANTIATE,
+		CONTEXT_COPY_INTO_PROJECT,
 		CONTEXT_COPY_PATH,
 		CONTEXT_COPY_UID,
 		CONTEXT_COPY_RESOURCE,
@@ -96,6 +102,11 @@ class MountedPacksDock : public VBoxContainer {
 	void _on_item_mouse_selected(const Vector2 &p_position, MouseButton p_button);
 	void _on_context_menu_id_pressed(int p_option);
 	Variant _get_drag_data_fw(const Point2 &p_point, Control *p_from);
+	void _copy_into_project(const String &p_dir);
+	String copied_to_show; // Selected in the FileSystem dock once the scan after copying is done.
+	void _show_copy();
+	String _copy_file(const String &p_source, const String &p_dir, String &r_target); // Returns an error message, or an empty string.
+
 	void _thumbnail_done(const String &p_path, const Ref<Texture2D> &p_preview, const Ref<Texture2D> &p_small_preview, const Variant &p_item);
 
 protected:

@@ -32,6 +32,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/input/input.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/resource_saver.h"
 #include "core/object/class_db.h"
 #include "core/os/keyboard.h"
@@ -1843,7 +1844,10 @@ void SceneTreeDock::_node_strip_signal_inheritance(Node *p_node) {
 }
 
 void SceneTreeDock::_load_request(const String &p_path) {
-	EditorNode::get_singleton()->load_scene(p_path);
+	// "Open in Editor" on an instance (local or remote tree) is an explicit request, so a scene from a read-only
+	// mounted pack opens without asking first (imported scenes still ask, as usual).
+	const bool from_pack = PackedData::get_singleton() && !PackedData::get_singleton()->get_pack_shadowed_by_writing(p_path).is_empty();
+	EditorNode::get_singleton()->load_scene(p_path, false, false, from_pack);
 	_local_tree_selected();
 }
 

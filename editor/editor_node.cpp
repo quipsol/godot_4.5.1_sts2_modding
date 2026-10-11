@@ -4456,6 +4456,17 @@ Error EditorNode::load_scene(const String &p_scene, bool p_ignore_broken_deps, b
 			open_import_request = lpath;
 			return OK;
 		}
+
+		// Scenes from read-only mounted packs can't be saved back either; offer the same choice (but not when
+		// restoring the scenes that were open last time).
+		const String pack = PackedData::get_singleton() ? PackedData::get_singleton()->get_pack_shadowed_by_writing(lpath) : String();
+		if (!p_force_open_imported && !restoring_scenes && !pack.is_empty()) {
+			open_imported->set_text(vformat(TTR("Scene '%s' comes from the read-only mounted pack \"%s\", so changes to it can't be saved there.\nTo make changes to it, a new inherited scene can be created (and saved in the project)."), lpath.get_file(), pack.get_file()));
+			open_imported->popup_centered();
+			new_inherited_button->grab_focus();
+			open_import_request = lpath;
+			return OK;
+		}
 	}
 
 	if (!lpath.begins_with("res://")) {
