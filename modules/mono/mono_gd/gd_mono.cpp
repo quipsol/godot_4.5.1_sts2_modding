@@ -49,6 +49,7 @@
 #include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
+#include "main/main.h"
 
 #ifdef UNIX_ENABLED
 #include <dlfcn.h>
@@ -753,8 +754,20 @@ bool GDMono::_load_project_assembly() {
 		return false;
 	}
 
+	// Mounted assemblies (e.g. a game's assembly when modding) are loaded before the project assembly, into its load
+	// context, so the project can reference them without copying them. See editor/mounted_assemblies/paths.
+	Vector<Char16String> mounted_assemblies_utf16;
+	for (const String &mounted_assembly : Main::get_mounted_assembly_paths()) {
+		mounted_assemblies_utf16.push_back(mounted_assembly.utf16());
+	}
+	Vector<const char16_t *> mounted_assemblies;
+	for (const Char16String &mounted_assembly : mounted_assemblies_utf16) {
+		mounted_assemblies.push_back(mounted_assembly.get_data());
+	}
+
 	String loaded_assembly_path;
-	bool success = plugin_callbacks.LoadProjectAssemblyCallback(assembly_path.utf16().get_data(), &loaded_assembly_path);
+	bool success = plugin_callbacks.LoadProjectAssemblyCallback(assembly_path.utf16().get_data(),
+			mounted_assemblies.ptr(), mounted_assemblies.size(), &loaded_assembly_path);
 
 	if (success) {
 		project_assembly_path = loaded_assembly_path.simplify_path();

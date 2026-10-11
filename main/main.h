@@ -65,6 +65,7 @@ public:
 		CLI_SCOPE_PROJECT,
 	};
 	static const Vector<String> &get_forwardable_cli_arguments(CLIScope p_scope);
+	static Vector<String> get_mounted_assembly_paths();
 #endif
 
 	static int test_entrypoint(int argc, char *argv[], bool &tests_need_run);

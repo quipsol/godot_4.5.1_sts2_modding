@@ -57,11 +57,46 @@ namespace GodotPlugins
                 bool isCollectible
             )
             {
-                var context = new PluginLoadContext(pluginPath, sharedAssemblies, mainLoadContext, isCollectible);
+                var (assembly, _, wrapper) = CreateAndLoadFromAssemblyName(assemblyName, pluginPath,
+                    sharedAssemblies, mainLoadContext, isCollectible, Array.Empty<string>());
+                return (assembly, wrapper);
+            }
+
+            // Loads the mounted assemblies into the plugin's context first, so the plugin and the mounted
+            // assemblies share one instance of each (the plugin can reference them without copying them).
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public static (Assembly, List<Assembly>, PluginLoadContextWrapper) CreateAndLoadFromAssemblyName(
+                AssemblyName assemblyName,
+                string pluginPath,
+                ICollection<string> sharedAssemblies,
+                AssemblyLoadContext mainLoadContext,
+                bool isCollectible,
+                IReadOnlyCollection<string> mountedAssemblyPaths
+            )
+            {
+                var context = new PluginLoadContext(pluginPath, sharedAssemblies, mainLoadContext, isCollectible,
+                    mountedAssemblyPaths);
                 var reference = new WeakReference(context, trackResurrection: true);
                 var wrapper = new PluginLoadContextWrapper(context, reference);
+
+                var mountedAssemblies = new List<Assembly>();
+                foreach (string mountedAssemblyPath in mountedAssemblyPaths)
+                {
+                    try
+                    {
+                        var mountedAssembly = context.LoadFromAssemblyName(
+                            AssemblyName.GetAssemblyName(mountedAssemblyPath));
+                        if (!mountedAssemblies.Contains(mountedAssembly))
+                            mountedAssemblies.Add(mountedAssembly);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.Error.WriteLine($"Failed to load mounted assembly '{mountedAssemblyPath}': {e}");
+                    }
+                }
+
                 var assembly = context.LoadFromAssemblyName(assemblyName);
-                return (assembly, wrapper);
+                return (assembly, mountedAssemblies, wrapper);
             }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
@@ -131,13 +166,14 @@ namespace GodotPlugins
         [StructLayout(LayoutKind.Sequential)]
         private struct PluginsCallbacks
         {
-            public unsafe delegate* unmanaged<char*, godot_string*, godot_bool> LoadProjectAssemblyCallback;
+            public unsafe delegate* unmanaged<char*, char**, int, godot_string*, godot_bool> LoadProjectAssemblyCallback;
             public unsafe delegate* unmanaged<char*, IntPtr, int, IntPtr> LoadToolsAssemblyCallback;
             public unsafe delegate* unmanaged<godot_bool> UnloadProjectPluginCallback;
         }
 
         [UnmanagedCallersOnly]
-        private static unsafe godot_bool LoadProjectAssembly(char* nAssemblyPath, godot_string* outLoadedAssemblyPath)
+        private static unsafe godot_bool LoadProjectAssembly(char* nAssemblyPath,
+            char** nMountedAssemblyPaths, int mountedAssemblyCount, godot_string* outLoadedAssemblyPath)
         {
             try
             {
@@ -146,10 +182,30 @@ namespace GodotPlugins
 
                 string assemblyPath = new(nAssemblyPath);
 
-                (var projectAssembly, _projectLoadContext) = LoadPlugin(assemblyPath, isCollectible: _editorHint);
+                // Assemblies loaded before the project assembly, into its load context
+                // (editor/mounted_assemblies/paths, --mount-assembly), e.g. a game's assembly when modding.
+                var mountedAssemblyPaths = new List<string>();
+                for (int i = 0; i < mountedAssemblyCount; i++)
+                {
+                    string mountedAssemblyPath = new(nMountedAssemblyPaths[i]);
+                    if (File.Exists(mountedAssemblyPath))
+                        mountedAssemblyPaths.Add(mountedAssemblyPath);
+                    else
+                        Console.Error.WriteLine($"Mounted assembly not found: '{mountedAssemblyPath}'.");
+                }
+
+                (var projectAssembly, var mountedAssemblies, _projectLoadContext) =
+                    LoadPlugin(assemblyPath, isCollectible: _editorHint, mountedAssemblyPaths);
 
                 string loadedAssemblyPath = _projectLoadContext.AssemblyLoadedPath ?? assemblyPath;
                 *outLoadedAssemblyPath = Marshaling.ConvertStringToNative(loadedAssemblyPath);
+
+                // Their scripts first, so the project's scripts can derive from them.
+                foreach (var mountedAssembly in mountedAssemblies)
+                {
+                    Console.WriteLine($"Mounted assembly: {mountedAssembly.GetName().Name}");
+                    ScriptManagerBridge.LookupScriptsInAssembly(mountedAssembly);
+                }
 
                 ScriptManagerBridge.LookupScriptsInAssembly(projectAssembly);
 
@@ -200,6 +256,13 @@ namespace GodotPlugins
 
         private static (Assembly, PluginLoadContextWrapper) LoadPlugin(string assemblyPath, bool isCollectible)
         {
+            var (assembly, _, wrapper) = LoadPlugin(assemblyPath, isCollectible, Array.Empty<string>());
+            return (assembly, wrapper);
+        }
+
+        private static (Assembly, List<Assembly>, PluginLoadContextWrapper) LoadPlugin(string assemblyPath,
+            bool isCollectible, IReadOnlyCollection<string> mountedAssemblyPaths)
+        {
             string assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
             var sharedAssemblies = new List<string>();
@@ -212,7 +275,8 @@ namespace GodotPlugins
             }
 
             return PluginLoadContextWrapper.CreateAndLoadFromAssemblyName(
-                new AssemblyName(assemblyName), assemblyPath, sharedAssemblies, MainLoadContext, isCollectible);
+                new AssemblyName(assemblyName), assemblyPath, sharedAssemblies, MainLoadContext, isCollectible,
+                mountedAssemblyPaths);
         }
 
         [UnmanagedCallersOnly]

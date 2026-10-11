@@ -34,6 +34,7 @@
 #include "core/input/input.h"
 #include "core/io/config_file.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/json.h"
 #include "core/io/resource_loader.h"
 #include "core/os/keyboard.h"
@@ -2805,15 +2806,21 @@ void ScriptEditor::save_all_scripts() {
 			continue;
 		}
 
-		if (convert_indent_on_save) {
+		// Scripts from a read-only mounted pack can't be saved. The cleanups below would mark them as changed
+		// (and then fail to save them) without any edit by the user, so they are skipped; real edits still try to save.
+		Ref<Resource> se_res = se->get_edited_resource();
+		const bool read_only_pack_script = se_res.is_valid() && !se_res->is_built_in() && PackedData::get_singleton() &&
+				PackedData::get_singleton()->is_read_only_path(se_res->get_path());
+
+		if (convert_indent_on_save && !read_only_pack_script) {
 			se->convert_indent();
 		}
 
-		if (trim_trailing_whitespace_on_save) {
+		if (trim_trailing_whitespace_on_save && !read_only_pack_script) {
 			se->trim_trailing_whitespace();
 		}
 
-		if (trim_final_newlines_on_save) {
+		if (trim_final_newlines_on_save && !read_only_pack_script) {
 			se->trim_final_newlines();
 		}
 
