@@ -149,6 +149,9 @@ public:
 	Error mount_read_only_pack(const String &p_path);
 	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
 	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
+	// The read-only mounted pack that writing p_path would shadow, or an empty string if writing is allowed.
+	// Paths under .godot/ are always writable: that is the project's own cache (e.g. imported data of a project file).
+	String get_write_protecting_pack(const String &p_path);
 
 	void clear();
 

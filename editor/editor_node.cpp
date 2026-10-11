@@ -35,6 +35,7 @@
 #include "core/input/input.h"
 #include "core/io/config_file.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/image.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
@@ -3067,7 +3068,11 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 			int scene_idx = (p_option == SCENE_SAVE_SCENE) ? -1 : tab_closing_idx;
 			Node *scene = editor_data.get_edited_scene_root(scene_idx);
 			if (scene && !scene->get_scene_file_path().is_empty()) {
-				if (DirAccess::exists(scene->get_scene_file_path().get_base_dir())) {
+				const String protecting_pack = PackedData::get_singleton() ? PackedData::get_singleton()->get_write_protecting_pack(scene->get_scene_file_path()) : String();
+				if (!protecting_pack.is_empty()) {
+					// Scenes from read-only mounted packs can be opened and edited, but only saved elsewhere.
+					show_save_accept(vformat(TTR("%s comes from the read-only mounted pack \"%s\" and can't be overwritten.\nPlease save it to a location in your project."), scene->get_scene_file_path(), protecting_pack), TTR("OK"));
+				} else if (DirAccess::exists(scene->get_scene_file_path().get_base_dir())) {
 					if (scene_idx != editor_data.get_edited_scene()) {
 						_save_scene_with_preview(scene->get_scene_file_path(), scene_idx);
 					} else {

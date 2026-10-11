@@ -1144,6 +1144,31 @@ Error EditorExportPlatform::export_project_files(const Ref<EditorExportPreset> &
 		}
 	}
 
+	// Files from read-only mounted packs (e.g. the game a mod is made for) are only referenced, never exported:
+	// they are not ours to ship, and the game provides them at runtime. Dependencies can point at them.
+	PackedData *packed_data = PackedData::get_singleton();
+	if (packed_data && packed_data->has_read_only_mounts()) {
+		Vector<String> mounted;
+		for (const String &path : paths) {
+			if (packed_data->is_read_only_path(path) || packed_data->is_read_only_path(path + ".import") || packed_data->is_read_only_path(path + ".remap")) {
+				mounted.push_back(path);
+			}
+		}
+		for (const String &path : mounted) {
+			paths.erase(path);
+		}
+		if (!mounted.is_empty()) {
+			String examples;
+			for (int i = 0; i < MIN(5, mounted.size()); i++) {
+				examples += "\n" + mounted[i];
+			}
+			if (mounted.size() > 5) {
+				examples += vformat("\n... and %d more.", mounted.size() - 5);
+			}
+			add_message(EXPORT_MESSAGE_WARNING, TTR("Export"), vformat(TTR("Skipped %d files from read-only mounted packs (referenced, not exported):%s"), mounted.size(), examples));
+		}
+	}
+
 	//add native icons to non-resource include list
 	_edit_filter_list(paths, String("*.icns"), false);
 	_edit_filter_list(paths, String("*.ico"), false);

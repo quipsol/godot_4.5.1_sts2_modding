@@ -31,6 +31,7 @@
 #include "editor_file_dialog.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/file_access_pack.h"
 #include "core/os/keyboard.h"
 #include "core/os/os.h"
 #include "editor/docks/filesystem_dock.h"
@@ -454,10 +455,25 @@ void EditorFileDialog::_dir_submitted(const String &p_dir) {
 		new_dir = drives->get_item_text(drives->get_selected()).path_join(new_dir);
 	}
 #endif
+	if ((mode == FILE_MODE_OPEN_FILE || mode == FILE_MODE_OPEN_ANY) && !dir_access->dir_exists(new_dir) && _is_mounted_file(new_dir)) {
+		// A file path from a read-only mounted pack typed into the path bar: open it directly.
+		file->set_text(new_dir);
+		_action_pressed();
+		return;
+	}
 	dir_access->change_dir(new_dir);
 	invalidate();
 	update_dir();
 	_push_history();
+}
+
+bool EditorFileDialog::_is_mounted_file(const String &p_path) const {
+	// Files from read-only mounted packs are not on disk, so they are never listed, but they can be opened by typing their path.
+	PackedData *packed_data = PackedData::get_singleton();
+	if (access != ACCESS_RESOURCES || !packed_data || !packed_data->has_read_only_mounts()) {
+		return false;
+	}
+	return packed_data->is_read_only_path(p_path) || packed_data->is_read_only_path(p_path + ".import") || packed_data->is_read_only_path(p_path + ".remap");
 }
 
 void EditorFileDialog::_file_submitted(const String &p_file) {
@@ -586,7 +602,7 @@ void EditorFileDialog::_action_pressed() {
 	String file_text = file->get_text();
 	String f = file_text.is_absolute_path() ? file_text : dir_access->get_current_dir().path_join(file_text);
 
-	if ((mode == FILE_MODE_OPEN_ANY || mode == FILE_MODE_OPEN_FILE) && (dir_access->file_exists(f) || dir_access->is_bundle(f))) {
+	if ((mode == FILE_MODE_OPEN_ANY || mode == FILE_MODE_OPEN_FILE) && (dir_access->file_exists(f) || dir_access->is_bundle(f) || _is_mounted_file(f))) {
 		_save_to_recent();
 		hide();
 		emit_signal(SNAME("file_selected"), f);

@@ -92,6 +92,23 @@ Error PackedData::mount_read_only_pack(const String &p_path) {
 	return OK;
 }
 
+String PackedData::get_write_protecting_pack(const String &p_path) {
+	if (read_only_mount_count == 0) {
+		return String();
+	}
+	// Absolute paths inside the project count too.
+	const String path = ProjectSettings::get_singleton()->localize_path(p_path);
+	const String simplified_path = path.simplify_path().trim_prefix("res://");
+	if (!path.begins_with("res://") || simplified_path.begins_with(".godot/")) {
+		return String();
+	}
+	HashMap<PathMD5, PackedFile, PathMD5>::Iterator E = files.find(PathMD5(simplified_path.md5_buffer()));
+	if (!E || !E->value.read_only || _is_shadowed_by_disk(path)) {
+		return String();
+	}
+	return E->value.pack;
+}
+
 int PackedData::_register_read_only_uids(const String &p_pack_path) {
 	// Same format as ResourceUID::save_to_cache(): entry count, then (id, path length, utf8 path) per entry.
 	Ref<FileAccess> f = read_only_uid_cache.src->get_file("res://.godot/uid_cache.bin", &read_only_uid_cache);

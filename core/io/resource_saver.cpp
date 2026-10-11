@@ -31,6 +31,7 @@
 #include "resource_saver.h"
 #include "core/config/project_settings.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/resource_loader.h"
 #include "core/object/script_language.h"
 
@@ -104,6 +105,12 @@ Error ResourceSaver::save(const Ref<Resource> &p_resource, const String &p_path,
 		path = p_resource->get_path();
 	}
 	ERR_FAIL_COND_V_MSG(path.is_empty(), ERR_INVALID_PARAMETER, "Can't save resource to empty path. Provide non-empty path or a Resource with non-empty resource_path.");
+
+	if (PackedData::get_singleton() && PackedData::get_singleton()->has_read_only_mounts()) {
+		const String pack = PackedData::get_singleton()->get_write_protecting_pack(path);
+		ERR_FAIL_COND_V_MSG(!pack.is_empty(), ERR_FILE_NO_PERMISSION,
+				vformat("Can't save resource to \"%s\": it comes from the read-only mounted pack \"%s\". Save it to another path in the project instead (e.g. with Save As).", path, pack));
+	}
 
 	String extension = path.get_extension();
 	Error err = ERR_FILE_UNRECOGNIZED;

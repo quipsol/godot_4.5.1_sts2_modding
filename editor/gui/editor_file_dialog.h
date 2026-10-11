@@ -242,6 +242,7 @@ private:
 
 	void _select_drive(int p_idx);
 	void _dir_submitted(const String &p_dir);
+	bool _is_mounted_file(const String &p_path) const;
 	void _action_pressed();
 	void _save_confirm_pressed();
 	void _cancel_pressed();
