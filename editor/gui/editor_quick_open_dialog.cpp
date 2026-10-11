@@ -31,8 +31,10 @@
 #include "editor_quick_open_dialog.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/file_access_pack.h"
 #include "core/string/fuzzy_search.h"
 #include "editor/docks/filesystem_dock.h"
+#include "editor/docks/mounted_packs_dock.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/file_system/editor_file_system.h"
@@ -276,6 +278,13 @@ QuickOpenResultContainer::QuickOpenResultContainer() {
 		include_addons_toggle->connect(SceneStringName(toggled), callable_mp(this, &QuickOpenResultContainer::_toggle_include_addons));
 		bottom_bar->add_child(include_addons_toggle);
 
+		include_mounted_toggle = memnew(CheckButton);
+		style_button(include_mounted_toggle);
+		include_mounted_toggle->set_text(TTR("Mounted Packs"));
+		include_mounted_toggle->set_tooltip_text(TTR("Include files from read-only mounted packs (marked with the pack icon)"));
+		include_mounted_toggle->connect(SceneStringName(toggled), callable_mp(this, &QuickOpenResultContainer::_toggle_include_mounted));
+		bottom_bar->add_child(include_mounted_toggle);
+
 		VSeparator *vsep = memnew(VSeparator);
 		vsep->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
 		vsep->set_custom_minimum_size(Size2i(0, 14 * EDSCALE));
@@ -337,6 +346,8 @@ void QuickOpenResultContainer::init(const Vector<StringName> &p_base_types) {
 	const bool include_addons = EDITOR_GET("filesystem/quick_open_dialog/include_addons");
 	fuzzy_search_toggle->set_pressed_no_signal(fuzzy_matching);
 	include_addons_toggle->set_pressed_no_signal(include_addons);
+	include_mounted_toggle->set_pressed_no_signal(EDITOR_GET("filesystem/quick_open_dialog/include_mounted_packs"));
+	include_mounted_toggle->set_visible(PackedData::get_singleton() && PackedData::get_singleton()->has_read_only_mounts());
 	never_opened = false;
 
 	const bool enable_highlights = EDITOR_GET("filesystem/quick_open_dialog/show_search_highlight");
@@ -408,13 +419,21 @@ void QuickOpenResultContainer::init(const Vector<StringName> &p_base_types) {
 
 void QuickOpenResultContainer::_sort_filepaths(int p_max_results) {
 	struct FilepathComparator {
+		const AHashMap<String, String> *mounted_paths = nullptr;
+
 		bool operator()(const String &p_lhs, const String &p_rhs) const {
+			// Project files before files from read-only mounted packs (a game's pack easily has thousands).
+			const bool lhs_mounted = mounted_paths->has(p_lhs);
+			if (lhs_mounted != mounted_paths->has(p_rhs)) {
+				return !lhs_mounted;
+			}
 			// Sort on (length, alphanumeric) to prioritize shorter filepaths
 			return p_lhs.length() == p_rhs.length() ? p_lhs < p_rhs : p_lhs.length() < p_rhs.length();
 		}
 	};
 
 	SortArray<String, FilepathComparator> sorter;
+	sorter.compare.mounted_paths = &mounted_paths;
 	if (filepaths.size() > p_max_results) {
 		sorter.partial_sort(0, filepaths.size(), p_max_results, filepaths.ptrw());
 	} else {
@@ -435,6 +454,10 @@ void QuickOpenResultContainer::_create_initial_results() {
 		}
 	}
 	_find_filepaths_in_folder(EditorFileSystem::get_singleton()->get_filesystem(), include_addons_toggle->is_pressed());
+	mounted_paths.clear();
+	if (include_mounted_toggle->is_visible() && include_mounted_toggle->is_pressed()) {
+		_find_mounted_filepaths(include_addons_toggle->is_pressed());
+	}
 	_sort_filepaths(result_items.size());
 	max_total_results = MIN(filepaths.size(), result_items.size());
 	update_results();
@@ -468,6 +491,30 @@ void QuickOpenResultContainer::_find_filepaths_in_folder(EditorFileSystemDirecto
 	}
 }
 
+void QuickOpenResultContainer::_find_mounted_filepaths(bool p_include_addons) {
+	MountedPacksDock *dock = MountedPacksDock::get_singleton();
+	if (!dock) {
+		return;
+	}
+	for (const MountedPacksDock::MountedFile &file : dock->get_mounted_files()) {
+		// Skip files that aren't resources, and paths the project has itself (its file wins over the pack's).
+		if (file.type == StringName() || filetypes.has(file.path)) {
+			continue;
+		}
+		if (!p_include_addons && file.path.begins_with("res://addons/")) {
+			continue;
+		}
+		for (const StringName &parent_type : base_types) {
+			if (ClassDB::is_parent_class(file.type, parent_type)) {
+				filepaths.append(file.path);
+				filetypes.insert(file.path, file.type);
+				mounted_paths.insert(file.path, file.pack);
+				break;
+			}
+		}
+	}
+}
+
 void QuickOpenResultContainer::set_query_and_update(const String &p_query) {
 	query = p_query;
 	update_results();
@@ -483,6 +530,8 @@ Vector<QuickOpenResultCandidate> *QuickOpenResultContainer::_get_history() {
 void QuickOpenResultContainer::_setup_candidate(QuickOpenResultCandidate &p_candidate, const String &p_filepath) {
 	p_candidate.file_path = ResourceUID::ensure_path(p_filepath);
 	p_candidate.result = nullptr;
+	const String *mounted_pack = mounted_paths.getptr(p_candidate.file_path);
+	p_candidate.mounted_pack = mounted_pack ? *mounted_pack : String();
 	StringName actual_type;
 	{
 		StringName *actual_type_ptr = filetypes.getptr(p_filepath);
@@ -528,6 +577,11 @@ void QuickOpenResultContainer::_use_default_candidates() {
 		for (const QuickOpenResultCandidate &candi : *history) {
 			existing_paths.insert(candi.file_path);
 		}
+		// History entries were set up before the mounted packs' files were gathered (or packs were remounted since).
+		for (QuickOpenResultCandidate &candidate : candidates) {
+			const String *mounted_pack = mounted_paths.getptr(candidate.file_path);
+			candidate.mounted_pack = mounted_pack ? *mounted_pack : String();
+		}
 	}
 	int i = candidates.size();
 
@@ -555,7 +609,29 @@ void QuickOpenResultContainer::_update_fuzzy_search_results() {
 	int max_misses = EDITOR_GET("filesystem/quick_open_dialog/max_fuzzy_misses");
 	fuzzy_search.allow_subsequences = fuzzy_matching;
 	fuzzy_search.max_misses = fuzzy_matching ? max_misses : 0;
-	fuzzy_search.search_all(filepaths, search_results);
+	if (mounted_paths.is_empty()) {
+		fuzzy_search.search_all(filepaths, search_results);
+		return;
+	}
+
+	// Project files first: search them on their own, then fill the remaining slots with matches from mounted packs,
+	// so the project's matches can't be crowded out of the results by a game's thousands of files.
+	PackedStringArray project_filepaths;
+	PackedStringArray mounted_filepaths;
+	for (const String &filepath : filepaths) {
+		if (mounted_paths.has(filepath)) {
+			mounted_filepaths.push_back(filepath);
+		} else {
+			project_filepaths.push_back(filepath);
+		}
+	}
+	fuzzy_search.search_all(project_filepaths, search_results);
+	if (search_results.size() < max_total_results) {
+		Vector<FuzzySearchResult> mounted_results;
+		fuzzy_search.max_results = max_total_results - search_results.size();
+		fuzzy_search.search_all(mounted_filepaths, mounted_results);
+		search_results.append_array(mounted_results);
+	}
 }
 
 void QuickOpenResultContainer::_score_and_sort_candidates() {
@@ -731,6 +807,12 @@ String QuickOpenResultContainer::_get_cache_file_path() const {
 
 void QuickOpenResultContainer::_toggle_include_addons(bool p_pressed) {
 	EditorSettings::get_singleton()->set("filesystem/quick_open_dialog/include_addons", p_pressed);
+	cleanup();
+	_create_initial_results();
+}
+
+void QuickOpenResultContainer::_toggle_include_mounted(bool p_pressed) {
+	EditorSettings::get_singleton()->set("filesystem/quick_open_dialog/include_mounted_packs", p_pressed);
 	cleanup();
 	_create_initial_results();
 }
@@ -1050,12 +1132,23 @@ QuickOpenResultListItem::QuickOpenResultListItem() {
 	path->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	path->add_theme_font_size_override(SceneStringName(font_size), 12 * EDSCALE);
 	text_container->add_child(path);
+
+	mounted_icon = memnew(TextureRect);
+	mounted_icon->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	mounted_icon->set_mouse_filter(Control::MOUSE_FILTER_PASS); // For the tooltip.
+	mounted_icon->hide();
+	hbc->add_child(mounted_icon);
 }
 
 void QuickOpenResultListItem::set_content(const QuickOpenResultCandidate &p_candidate, bool p_highlight) {
 	thumbnail->set_texture(p_candidate.thumbnail);
 	name->set_text(p_candidate.file_path.get_file());
 	path->set_text(p_candidate.file_path.get_base_dir());
+	mounted_icon->set_visible(!p_candidate.mounted_pack.is_empty());
+	if (mounted_icon->is_visible()) {
+		mounted_icon->set_texture(get_editor_theme_icon(SNAME("PackedDataContainer")));
+		mounted_icon->set_tooltip_text(vformat(TTR("From the read-only mounted pack \"%s\"."), p_candidate.mounted_pack));
+	}
 	name->reset_highlights();
 	path->reset_highlights();
 
@@ -1071,6 +1164,7 @@ void QuickOpenResultListItem::set_content(const QuickOpenResultCandidate &p_cand
 
 void QuickOpenResultListItem::reset() {
 	thumbnail->set_texture(nullptr);
+	mounted_icon->hide();
 	name->set_text("");
 	path->set_text("");
 	name->reset_highlights();
@@ -1115,6 +1209,13 @@ QuickOpenResultGridItem::QuickOpenResultGridItem() {
 	thumbnail->set_custom_minimum_size(Size2i(max_size, max_size));
 	vbc->add_child(thumbnail);
 
+	// In the thumbnail's top right corner.
+	mounted_icon = memnew(TextureRect);
+	mounted_icon->set_mouse_filter(Control::MOUSE_FILTER_PASS); // For the tooltip.
+	mounted_icon->hide();
+	thumbnail->add_child(mounted_icon);
+	mounted_icon->set_anchors_and_offsets_preset(Control::PRESET_TOP_RIGHT);
+
 	name = memnew(HighlightedLabel);
 	name->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	name->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
@@ -1126,7 +1227,13 @@ QuickOpenResultGridItem::QuickOpenResultGridItem() {
 void QuickOpenResultGridItem::set_content(const QuickOpenResultCandidate &p_candidate, bool p_highlight) {
 	thumbnail->set_texture(p_candidate.thumbnail);
 	name->set_text(p_candidate.file_path.get_file());
-	name->set_tooltip_text(p_candidate.file_path);
+	name->set_tooltip_text(p_candidate.mounted_pack.is_empty() ? p_candidate.file_path : vformat(TTR("%s\nFrom the read-only mounted pack \"%s\"."), p_candidate.file_path, p_candidate.mounted_pack));
+	mounted_icon->set_visible(!p_candidate.mounted_pack.is_empty());
+	if (mounted_icon->is_visible()) {
+		mounted_icon->set_texture(get_editor_theme_icon(SNAME("PackedDataContainer")));
+		mounted_icon->set_tooltip_text(vformat(TTR("From the read-only mounted pack \"%s\"."), p_candidate.mounted_pack));
+		mounted_icon->set_anchors_and_offsets_preset(Control::PRESET_TOP_RIGHT); // Size the corner to the icon.
+	}
 	name->reset_highlights();
 
 	if (p_highlight && p_candidate.result != nullptr) {
@@ -1150,6 +1257,7 @@ void QuickOpenResultGridItem::set_content(const QuickOpenResultCandidate &p_cand
 
 void QuickOpenResultGridItem::reset() {
 	thumbnail->set_texture(nullptr);
+	mounted_icon->hide();
 	name->set_text("");
 	name->reset_highlights();
 }

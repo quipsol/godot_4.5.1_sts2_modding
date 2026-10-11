@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/object/worker_thread_pool.h"
 #include "scene/gui/box_container.h"
 
 class Button;
@@ -46,7 +47,22 @@ class TreeItem;
 class MountedPacksDock : public VBoxContainer {
 	GDCLASS(MountedPacksDock, VBoxContainer);
 
+public:
+	struct MountedFile {
+		String path; // res:// path, as the project uses it (e.g. "x.png", not "x.png.import").
+		String pack; // The pack's name.
+		StringName type; // Resource type (empty if it isn't a resource).
+	};
+
+private:
 	static inline MountedPacksDock *singleton = nullptr;
+
+	// For Quick Open: all files with their types. Determining the types reads every file's header (or .import file),
+	// so it runs on a worker thread after each (re)mount.
+	LocalVector<MountedFile> mounted_files;
+	WorkerThreadPool::TaskID types_task = WorkerThreadPool::INVALID_TASK_ID;
+	void _determine_types(int p_unused);
+	void _wait_for_types();
 
 	// The packs' contents as a tree of entries; TreeItems store their entry's index as metadata.
 	// Folders get their TreeItems only when expanded (a game's pack has thousands of files).
@@ -117,6 +133,7 @@ public:
 	static MountedPacksDock *get_singleton() { return singleton; }
 
 	void update_packs(); // After the read-only packs were (re)mounted.
+	const LocalVector<MountedFile> &get_mounted_files(); // Waits for the types if they're still being determined.
 
 	MountedPacksDock();
 	~MountedPacksDock();

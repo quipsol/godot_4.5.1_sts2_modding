@@ -5104,6 +5104,13 @@ void EditorNode::_update_recent_scenes() {
 }
 
 void EditorNode::_quick_opened(const String &p_file_path) {
+	// Picking a scene from a read-only mounted pack is an explicit request, so it opens without asking first
+	// (asking would fail here anyway: the Quick Open dialog is still the exclusive window when this is called).
+	const bool from_pack = PackedData::get_singleton() && !PackedData::get_singleton()->get_pack_shadowed_by_writing(p_file_path).is_empty();
+	if (from_pack && ResourceLoader::get_resource_type(p_file_path) == "PackedScene") {
+		load_scene(p_file_path, false, false, true);
+		return;
+	}
 	load_scene_or_resource(p_file_path);
 }
 

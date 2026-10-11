@@ -36,6 +36,7 @@
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/io/resource_uid.h"
+#include "core/os/os.h"
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/inspector_dock.h"
 #include "editor/file_system/editor_file_system.h"
@@ -88,6 +89,9 @@ void MountedPacksDock::_rebuild_model() {
 	pack_entries.clear();
 	file_entries.clear();
 
+	_wait_for_types(); // The task reads mounted_files.
+	mounted_files.clear();
+
 	PackedData *packed_data = PackedData::get_singleton();
 	if (!packed_data) {
 		return;
@@ -136,6 +140,7 @@ void MountedPacksDock::_rebuild_model() {
 				}
 			}
 			file_entries.push_back(_add_entry(path.get_file(), "res://" + path, parent, Entry::KIND_FILE));
+			mounted_files.push_back({ "res://" + path, entries[pack_entry].name, StringName() });
 		}
 	}
 
@@ -277,6 +282,29 @@ void MountedPacksDock::_update_tree() {
 void MountedPacksDock::update_packs() {
 	_rebuild_model();
 	_update_tree();
+	if (!mounted_files.is_empty()) {
+		types_task = WorkerThreadPool::get_singleton()->add_template_task(this, &MountedPacksDock::_determine_types, 0, false, "Determine the types of the mounted packs' files");
+	}
+}
+
+void MountedPacksDock::_determine_types(int p_unused) {
+	const uint64_t started = OS::get_singleton()->get_ticks_msec();
+	for (MountedFile &file : mounted_files) {
+		file.type = ResourceLoader::get_resource_type(file.path);
+	}
+	print_verbose(vformat("Mounted Packs: determined the types of %d files in %d ms.", mounted_files.size(), OS::get_singleton()->get_ticks_msec() - started));
+}
+
+void MountedPacksDock::_wait_for_types() {
+	if (types_task != WorkerThreadPool::INVALID_TASK_ID) {
+		WorkerThreadPool::get_singleton()->wait_for_task_completion(types_task);
+		types_task = WorkerThreadPool::INVALID_TASK_ID;
+	}
+}
+
+const LocalVector<MountedPacksDock::MountedFile> &MountedPacksDock::get_mounted_files() {
+	_wait_for_types();
+	return mounted_files;
 }
 
 Vector<String> MountedPacksDock::_get_selected_files() const {
@@ -604,5 +632,6 @@ MountedPacksDock::MountedPacksDock() {
 }
 
 MountedPacksDock::~MountedPacksDock() {
+	_wait_for_types();
 	singleton = nullptr;
 }

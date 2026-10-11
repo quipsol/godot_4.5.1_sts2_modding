@@ -658,6 +658,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("filesystem/quick_open_dialog/enable_fuzzy_matching", true);
 	EDITOR_SETTING_USAGE(Variant::INT, PROPERTY_HINT_RANGE, "filesystem/quick_open_dialog/max_fuzzy_misses", 2, "0,10,1", PROPERTY_USAGE_DEFAULT)
 	_initial_set("filesystem/quick_open_dialog/include_addons", false);
+	_initial_set("filesystem/quick_open_dialog/include_mounted_packs", true); // Files from read-only mounted packs (editor/mounted_packs/paths, --mount-pack).
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_ENUM, "filesystem/quick_open_dialog/default_display_mode", 0, "Adaptive,Last Used")
 
 	// Import (for glft module)

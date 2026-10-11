@@ -63,6 +63,7 @@ struct QuickOpenResultCandidate {
 	String file_path;
 	Ref<Texture2D> thumbnail;
 	const FuzzySearchResult *result = nullptr;
+	String mounted_pack; // The read-only mounted pack the file comes from; empty for project files.
 };
 
 class HighlightedLabel : public Label {
@@ -140,6 +141,8 @@ private:
 	Label *file_details_path = nullptr;
 	Button *display_mode_toggle = nullptr;
 	CheckButton *include_addons_toggle = nullptr;
+	CheckButton *include_mounted_toggle = nullptr;
+	AHashMap<String, String> mounted_paths; // Candidates from read-only mounted packs -> their pack.
 	CheckButton *fuzzy_search_toggle = nullptr;
 
 	AHashMap<StringName, Ref<Texture2D>> file_type_icons;
@@ -150,6 +153,7 @@ private:
 	void _sort_filepaths(int p_max_results);
 	void _create_initial_results();
 	void _find_filepaths_in_folder(EditorFileSystemDirectory *p_directory, bool p_include_addons);
+	void _find_mounted_filepaths(bool p_include_addons);
 
 	Vector<QuickOpenResultCandidate> *_get_history();
 	void _setup_candidate(QuickOpenResultCandidate &p_candidate, const String &p_filepath);
@@ -169,6 +173,7 @@ private:
 	void _set_display_mode(QuickOpenDisplayMode p_display_mode);
 	void _toggle_display_mode();
 	void _toggle_include_addons(bool p_pressed);
+	void _toggle_include_mounted(bool p_pressed);
 	void _toggle_fuzzy_search(bool p_pressed);
 	void _menu_option(int p_option);
 
@@ -191,6 +196,7 @@ public:
 private:
 	VBoxContainer *vbc = nullptr;
 	TextureRect *thumbnail = nullptr;
+	TextureRect *mounted_icon = nullptr; // Marks files from read-only mounted packs.
 	HighlightedLabel *name = nullptr;
 };
 
@@ -215,6 +221,7 @@ private:
 	TextureRect *thumbnail = nullptr;
 	HighlightedLabel *name = nullptr;
 	HighlightedLabel *path = nullptr;
+	TextureRect *mounted_icon = nullptr; // Marks files from read-only mounted packs.
 };
 
 class QuickOpenResultItem : public HBoxContainer {
