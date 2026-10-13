@@ -112,6 +112,11 @@ protected:
 
 	String project_data_dir_name;
 
+	// Settings that belong to one machine (e.g. paths to a game's files): never saved to project.godot, but to
+	// override.cfg next to it. See set_machine_specific().
+	HashSet<StringName> machine_specific_settings;
+	Error _save_machine_specific_settings();
+
 	bool _set(const StringName &p_name, const Variant &p_value);
 	bool _get(const StringName &p_name, Variant &r_ret) const;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
@@ -176,6 +181,10 @@ public:
 	void set_ignore_value_in_docs(const String &p_name, bool p_ignore);
 	bool get_ignore_value_in_docs(const String &p_name) const;
 	void add_hidden_prefix(const String &p_prefix);
+
+	void set_machine_specific(const String &p_name, bool p_load_from_override);
+	bool is_machine_specific(const String &p_name) const;
+	Vector<String> get_machine_specific_paths(const String &p_name) const;
 
 	String get_project_data_dir_name() const;
 	String get_project_data_path() const;

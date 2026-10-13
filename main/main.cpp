@@ -227,6 +227,7 @@ static int converter_max_line_length = 100000;
 
 HashMap<Main::CLIScope, Vector<String>> forwardable_cli_arguments;
 static Vector<String> command_line_mounted_assemblies;
+static Vector<String> command_line_pre_patches;
 #endif
 static bool single_threaded_scene = false;
 
@@ -319,24 +320,12 @@ static String _resolve_mount_pack_path(const String &p_path) {
 	return path.simplify_path();
 }
 
-// Assemblies (.dll) loaded alongside the project assembly, before it, in the editor and the project run from it
-// (e.g. a game's assembly when modding). Command line assemblies first, then editor/mounted_assemblies/paths.
-// Paths are absolute; relative setting entries are relative to the project folder.
-Vector<String> Main::get_mounted_assembly_paths() {
-	Vector<String> assemblies = command_line_mounted_assemblies;
+// Command line assemblies first, then the ones in the setting (see ProjectSettings::get_machine_specific_paths()).
+static Vector<String> _get_assembly_paths(const Vector<String> &p_command_line_assemblies, const String &p_setting) {
+	Vector<String> assemblies = p_command_line_assemblies;
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
-	if (project_settings && project_settings->has_setting("editor/mounted_assemblies/paths")) {
-		const PackedStringArray setting = project_settings->get_setting("editor/mounted_assemblies/paths");
-		for (const String &entry : setting) {
-			String path = entry.strip_edges();
-			if (path.is_empty()) {
-				continue;
-			}
-			path = project_settings->globalize_path(path);
-			if (path.is_relative_path()) {
-				path = project_settings->get_resource_path().path_join(path);
-			}
-			path = path.simplify_path();
+	if (project_settings) {
+		for (const String &path : project_settings->get_machine_specific_paths(p_setting)) {
 			if (!assemblies.has(path)) {
 				assemblies.push_back(path);
 			}
@@ -345,24 +334,16 @@ Vector<String> Main::get_mounted_assembly_paths() {
 	return assemblies;
 }
 
-// The editor ignores override.cfg (so that its overrides are never saved into project.godot), but some settings are
-// machine-specific and belong there, so the editor reads them from override.cfg too. The editor saves every setting
-// that differs from its default into project.godot; when the value doesn't come from project.godot itself,
-// it becomes the default, so it doesn't end up in project.godot either.
-static void _load_machine_specific_setting(const String &p_setting, bool p_editor) {
-	const String section = p_setting.get_slicec('/', 0);
-	const String key = p_setting.substr(section.length() + 1);
-	const String resource_path = ProjectSettings::get_singleton()->get_resource_path();
-	Ref<ConfigFile> override_file;
-	override_file.instantiate();
-	if (p_editor && override_file->load(resource_path.path_join("override.cfg")) == OK && override_file->has_section_key(section, key)) {
-		ProjectSettings::get_singleton()->set_setting(p_setting, override_file->get_value(section, key));
-	}
-	Ref<ConfigFile> project_file;
-	project_file.instantiate();
-	if (project_file->load(resource_path.path_join("project.godot")) == OK && !project_file->has_section_key(section, key)) {
-		ProjectSettings::get_singleton()->set_initial_value(p_setting, GLOBAL_GET(p_setting));
-	}
+// Assemblies (.dll) loaded alongside the project assembly, before it, in the editor and the project run from it
+// (e.g. a game's assembly when modding). See editor/mounted_assemblies/paths.
+Vector<String> Main::get_mounted_assembly_paths() {
+	return _get_assembly_paths(command_line_mounted_assemblies, "editor/mounted_assemblies/paths");
+}
+
+// Assemblies (.dll) whose module initializers run before the project run from the editor starts, e.g. to patch the
+// mounted game assembly with Harmony. See editor/pre_patches/paths.
+Vector<String> Main::get_pre_patch_paths() {
+	return _get_assembly_paths(command_line_pre_patches, "editor/pre_patches/paths");
 }
 #endif
 
@@ -619,6 +600,7 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--main-pack <file>", "Path to a pack (.pck) file to load.\n");
 	print_help_option("--mount-pack <file>", "Mount a pack (.pck) read-only on top of the project, in the editor and in the project run from it. Can be repeated; mounted before the packs in editor/mounted_packs/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--mount-assembly <file>", "Load a .NET assembly (.dll) before the project assembly, in the editor and in the project run from it. Can be repeated; loaded before the assemblies in editor/mounted_assemblies/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--pre-patch <file>", "Load a .NET assembly (.dll) and run its module initializer before the project run from the editor starts. Can be repeated; runs before the assemblies in editor/pre_patches/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifdef DISABLE_DEPRECATED
 	print_help_option("--render-thread <mode>", "Render thread mode (\"safe\", \"separate\").\n");
 #else
@@ -1170,8 +1152,8 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(next_arg);
 			}
 		}
-		// Read-only packs and mounted assemblies apply to editor restarts and to the project run from the editor too.
-		if (arg == "--mount-pack" || arg == "--mount-assembly") {
+		// Read-only packs, mounted assemblies and pre-patches apply to editor restarts and to the project run from the editor too.
+		if (arg == "--mount-pack" || arg == "--mount-assembly" || arg == "--pre-patch") {
 			if (N) {
 				const String pack = _resolve_mount_pack_path(N->get());
 				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(arg);
@@ -1821,6 +1803,17 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing path to the assembly to mount, aborting.\n");
 				goto error;
 			}
+		} else if (arg == "--pre-patch") {
+			if (N) {
+				const String assembly = _resolve_mount_pack_path(N->get());
+				if (!command_line_pre_patches.has(assembly)) {
+					command_line_pre_patches.push_back(assembly);
+				}
+				N = N->next();
+			} else {
+				OS::get_singleton()->print("Missing path to the pre-patch assembly, aborting.\n");
+				goto error;
+			}
 #endif
 
 		} else if (arg == "-d" || arg == "--debug") {
@@ -2205,12 +2198,12 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	{
 		// Packs mounted read-only on top of the project (e.g. a game's pack and other mods' packs when modding).
 		// Applies to the editor and to the project run from it, so both resolve the same resources.
-		// Relative paths are relative to the project folder; machine-specific paths can go in override.cfg.
+		// Relative paths are relative to the project folder. Saved to override.cfg, never to project.godot (machine-specific).
 		// Changing the setting in the editor remounts the packs (see EditorNode).
 		const String setting = "editor/mounted_packs/paths";
 		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.pck", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
 
-		_load_machine_specific_setting(setting, editor);
+		ProjectSettings::get_singleton()->set_machine_specific(setting, editor);
 
 		if (!project_manager) {
 			packed_data->mount_configured_read_only_packs();
@@ -2222,7 +2215,15 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		// project run from it; relative paths are relative to the project folder. See GDMono.
 		const String setting = "editor/mounted_assemblies/paths";
 		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.dll", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
-		_load_machine_specific_setting(setting, editor);
+		ProjectSettings::get_singleton()->set_machine_specific(setting, editor);
+	}
+	{
+		// .NET assemblies loaded after the mounted assemblies, whose module initializers then run before any code of
+		// the project run from the editor (e.g. to patch the game's assembly with Harmony before the game starts).
+		// Not run in the editor itself. Relative paths are relative to the project folder. See GDMono.
+		const String setting = "editor/pre_patches/paths";
+		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.dll", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
+		ProjectSettings::get_singleton()->set_machine_specific(setting, editor);
 	}
 
 	// Stock Godot disables packs in the editor entirely. Keep that unless packs were mounted read-only above;

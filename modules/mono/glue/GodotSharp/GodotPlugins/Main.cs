@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -58,12 +59,13 @@ namespace GodotPlugins
             )
             {
                 var (assembly, _, wrapper) = CreateAndLoadFromAssemblyName(assemblyName, pluginPath,
-                    sharedAssemblies, mainLoadContext, isCollectible, Array.Empty<string>());
+                    sharedAssemblies, mainLoadContext, isCollectible, Array.Empty<string>(), Array.Empty<string>());
                 return (assembly, wrapper);
             }
 
             // Loads the mounted assemblies into the plugin's context first, so the plugin and the mounted
             // assemblies share one instance of each (the plugin can reference them without copying them).
+            // Then the pre-patches, whose module initializers run before the plugin is loaded.
             [MethodImpl(MethodImplOptions.NoInlining)]
             public static (Assembly, List<Assembly>, PluginLoadContextWrapper) CreateAndLoadFromAssemblyName(
                 AssemblyName assemblyName,
@@ -71,11 +73,14 @@ namespace GodotPlugins
                 ICollection<string> sharedAssemblies,
                 AssemblyLoadContext mainLoadContext,
                 bool isCollectible,
-                IReadOnlyCollection<string> mountedAssemblyPaths
+                IReadOnlyCollection<string> mountedAssemblyPaths,
+                IReadOnlyCollection<string> prePatchPaths
             )
             {
+                // Pre-patches are resolved like mounted assemblies: by name, and their folders are searched for
+                // their dependencies (after the mounted assemblies' folders).
                 var context = new PluginLoadContext(pluginPath, sharedAssemblies, mainLoadContext, isCollectible,
-                    mountedAssemblyPaths);
+                    mountedAssemblyPaths.Concat(prePatchPaths));
                 var reference = new WeakReference(context, trackResurrection: true);
                 var wrapper = new PluginLoadContextWrapper(context, reference);
 
@@ -95,8 +100,30 @@ namespace GodotPlugins
                     }
                 }
 
+                foreach (string prePatchPath in prePatchPaths)
+                    RunPrePatch(context, prePatchPath);
+
                 var assembly = context.LoadFromAssemblyName(assemblyName);
                 return (assembly, mountedAssemblies, wrapper);
+            }
+
+            // Loads a pre-patch and runs its module initializer ([ModuleInitializer] methods), which .NET would
+            // otherwise only run once something in the assembly is used. A failing pre-patch is reported, and the
+            // project still starts.
+            private static void RunPrePatch(PluginLoadContext context, string prePatchPath)
+            {
+                try
+                {
+                    var prePatch = context.LoadFromAssemblyName(AssemblyName.GetAssemblyName(prePatchPath));
+                    global::Godot.GD.Print($"Running pre-patch: {prePatch.GetName().Name}");
+                    RuntimeHelpers.RunModuleConstructor(prePatch.ManifestModule.ModuleHandle);
+                }
+                catch (Exception e)
+                {
+                    // Exceptions from the module initializer are wrapped in a TypeInitializationException.
+                    Exception error = e is TypeInitializationException { InnerException: not null } ? e.InnerException : e;
+                    global::Godot.GD.PushError($"Pre-patch '{prePatchPath}' failed: {error}");
+                }
             }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
@@ -166,14 +193,15 @@ namespace GodotPlugins
         [StructLayout(LayoutKind.Sequential)]
         private struct PluginsCallbacks
         {
-            public unsafe delegate* unmanaged<char*, char**, int, godot_string*, godot_bool> LoadProjectAssemblyCallback;
+            public unsafe delegate* unmanaged<char*, char**, int, char**, int, godot_string*, godot_bool> LoadProjectAssemblyCallback;
             public unsafe delegate* unmanaged<char*, IntPtr, int, IntPtr> LoadToolsAssemblyCallback;
             public unsafe delegate* unmanaged<godot_bool> UnloadProjectPluginCallback;
         }
 
         [UnmanagedCallersOnly]
         private static unsafe godot_bool LoadProjectAssembly(char* nAssemblyPath,
-            char** nMountedAssemblyPaths, int mountedAssemblyCount, godot_string* outLoadedAssemblyPath)
+            char** nMountedAssemblyPaths, int mountedAssemblyCount,
+            char** nPrePatchPaths, int prePatchCount, godot_string* outLoadedAssemblyPath)
         {
             try
             {
@@ -194,8 +222,20 @@ namespace GodotPlugins
                         Console.Error.WriteLine($"Mounted assembly not found: '{mountedAssemblyPath}'.");
                 }
 
+                // Assemblies whose module initializers run before the project's code, e.g. to patch a mounted
+                // assembly with Harmony (editor/pre_patches/paths, --pre-patch). The engine passes none in the editor.
+                var prePatchPaths = new List<string>();
+                for (int i = 0; i < prePatchCount; i++)
+                {
+                    string prePatchPath = new(nPrePatchPaths[i]);
+                    if (File.Exists(prePatchPath))
+                        prePatchPaths.Add(prePatchPath);
+                    else
+                        global::Godot.GD.PushError($"Pre-patch not found: '{prePatchPath}'.");
+                }
+
                 (var projectAssembly, var mountedAssemblies, _projectLoadContext) =
-                    LoadPlugin(assemblyPath, isCollectible: _editorHint, mountedAssemblyPaths);
+                    LoadPlugin(assemblyPath, isCollectible: _editorHint, mountedAssemblyPaths, prePatchPaths);
 
                 string loadedAssemblyPath = _projectLoadContext.AssemblyLoadedPath ?? assemblyPath;
                 *outLoadedAssemblyPath = Marshaling.ConvertStringToNative(loadedAssemblyPath);
@@ -256,12 +296,14 @@ namespace GodotPlugins
 
         private static (Assembly, PluginLoadContextWrapper) LoadPlugin(string assemblyPath, bool isCollectible)
         {
-            var (assembly, _, wrapper) = LoadPlugin(assemblyPath, isCollectible, Array.Empty<string>());
+            var (assembly, _, wrapper) = LoadPlugin(assemblyPath, isCollectible, Array.Empty<string>(),
+                Array.Empty<string>());
             return (assembly, wrapper);
         }
 
         private static (Assembly, List<Assembly>, PluginLoadContextWrapper) LoadPlugin(string assemblyPath,
-            bool isCollectible, IReadOnlyCollection<string> mountedAssemblyPaths)
+            bool isCollectible, IReadOnlyCollection<string> mountedAssemblyPaths,
+            IReadOnlyCollection<string> prePatchPaths)
         {
             string assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
@@ -276,7 +318,7 @@ namespace GodotPlugins
 
             return PluginLoadContextWrapper.CreateAndLoadFromAssemblyName(
                 new AssemblyName(assemblyName), assemblyPath, sharedAssemblies, MainLoadContext, isCollectible,
-                mountedAssemblyPaths);
+                mountedAssemblyPaths, prePatchPaths);
         }
 
         [UnmanagedCallersOnly]

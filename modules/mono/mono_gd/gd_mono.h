@@ -46,8 +46,9 @@ namespace gdmono {
 
 #ifdef TOOLS_ENABLED
 struct PluginCallbacks {
-	// Project assembly path, mounted assembly paths and their count, out: the loaded project assembly path.
-	using FuncLoadProjectAssemblyCallback = bool(GD_CLR_STDCALL *)(const char16_t *, const char16_t *const *, int32_t, String *);
+	// Project assembly path, mounted assembly paths and their count, pre-patch assembly paths and their count,
+	// out: the loaded project assembly path.
+	using FuncLoadProjectAssemblyCallback = bool(GD_CLR_STDCALL *)(const char16_t *, const char16_t *const *, int32_t, const char16_t *const *, int32_t, String *);
 	using FuncLoadToolsAssemblyCallback = Object *(GD_CLR_STDCALL *)(const char16_t *, const void **, int32_t);
 	using FuncUnloadProjectPluginCallback = bool(GD_CLR_STDCALL *)();
 	FuncLoadProjectAssemblyCallback LoadProjectAssemblyCallback = nullptr;

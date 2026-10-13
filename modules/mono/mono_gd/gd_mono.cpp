@@ -743,6 +743,22 @@ void GDMono::_init_godot_api_hashes() {
 }
 
 #ifdef TOOLS_ENABLED
+// Paths as UTF-16 strings, and pointers to them as the managed side expects (char**). The strings must stay
+// alive as long as the pointers are used.
+struct Utf16Paths {
+	Vector<Char16String> strings;
+	Vector<const char16_t *> pointers;
+
+	explicit Utf16Paths(const Vector<String> &p_paths) {
+		for (const String &path : p_paths) {
+			strings.push_back(path.utf16());
+		}
+		for (const Char16String &string : strings) {
+			pointers.push_back(string.get_data());
+		}
+	}
+};
+
 bool GDMono::_load_project_assembly() {
 	String assembly_name = Path::get_csharp_project_name();
 
@@ -756,18 +772,16 @@ bool GDMono::_load_project_assembly() {
 
 	// Mounted assemblies (e.g. a game's assembly when modding) are loaded before the project assembly, into its load
 	// context, so the project can reference them without copying them. See editor/mounted_assemblies/paths.
-	Vector<Char16String> mounted_assemblies_utf16;
-	for (const String &mounted_assembly : Main::get_mounted_assembly_paths()) {
-		mounted_assemblies_utf16.push_back(mounted_assembly.utf16());
-	}
-	Vector<const char16_t *> mounted_assemblies;
-	for (const Char16String &mounted_assembly : mounted_assemblies_utf16) {
-		mounted_assemblies.push_back(mounted_assembly.get_data());
-	}
+	const Utf16Paths mounted_assemblies(Main::get_mounted_assembly_paths());
+
+	// Pre-patches run their module initializers right after that, so they can patch the mounted assemblies before
+	// the project uses them. Only in the project run from the editor, not in the editor. See editor/pre_patches/paths.
+	const Utf16Paths pre_patches(Engine::get_singleton()->is_editor_hint() ? Vector<String>() : Main::get_pre_patch_paths());
 
 	String loaded_assembly_path;
 	bool success = plugin_callbacks.LoadProjectAssemblyCallback(assembly_path.utf16().get_data(),
-			mounted_assemblies.ptr(), mounted_assemblies.size(), &loaded_assembly_path);
+			mounted_assemblies.pointers.ptr(), mounted_assemblies.pointers.size(),
+			pre_patches.pointers.ptr(), pre_patches.pointers.size(), &loaded_assembly_path);
 
 	if (success) {
 		project_assembly_path = loaded_assembly_path.simplify_path();

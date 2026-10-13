@@ -251,6 +251,126 @@ void ProjectSettings::add_hidden_prefix(const String &p_prefix) {
 	hidden_prefixes.push_back(p_prefix);
 }
 
+// A machine-specific setting (e.g. a path to a game's files) is never saved to project.godot, which is shared, but to
+// override.cfg next to it, which is not (see _save_machine_specific_settings()). The project run from the editor reads
+// override.cfg on top of project.godot anyway; the editor ignores override.cfg, so p_load_from_override reads the
+// setting's value from it. If both files have the setting, override.cfg wins.
+void ProjectSettings::set_machine_specific(const String &p_name, bool p_load_from_override) {
+	ERR_FAIL_COND_MSG(!props.has(p_name), vformat("Request for nonexistent project setting: '%s'.", p_name));
+	machine_specific_settings.insert(p_name);
+	if (!p_load_from_override) {
+		return;
+	}
+	const String section = p_name.get_slicec('/', 0);
+	const String key = p_name.substr(section.length() + 1);
+	Ref<ConfigFile> override_file;
+	override_file.instantiate();
+	if (override_file->load(resource_path.path_join("override.cfg")) == OK && override_file->has_section_key(section, key)) {
+		set_setting(p_name, override_file->get_value(section, key));
+	}
+}
+
+bool ProjectSettings::is_machine_specific(const String &p_name) const {
+	return machine_specific_settings.has(p_name);
+}
+
+// The paths in a machine-specific PackedStringArray setting, cleaned up: backslashes become forward slashes, relative
+// paths are relative to the project folder, empty entries and duplicates are dropped.
+Vector<String> ProjectSettings::get_machine_specific_paths(const String &p_name) const {
+	Vector<String> paths;
+	if (!has_setting(p_name)) {
+		return paths;
+	}
+	const PackedStringArray setting = get_setting(p_name);
+	for (const String &entry : setting) {
+		String path = entry.strip_edges().replace_char('\\', '/');
+		if (path.is_empty()) {
+			continue;
+		}
+		// In override.cfg and project.godot, a single backslash starts an escape sequence and is lost when the file is
+		// read ("G:\Steam" becomes "G:Steam", "\t" a tab), so such a path can't be repaired here, only reported.
+		const bool lost_backslash = path.length() > 2 && is_ascii_alphabet_char(path[0]) && path[1] == ':' && path[2] != '/';
+		if (lost_backslash || path.contains_char('\t') || path.contains_char('\n') || path.contains_char('\r')) {
+			WARN_PRINT(vformat("Path \"%s\" in %s looks like it was written with single backslashes, which are escape characters in override.cfg and project.godot. Use / (or \\\\) instead.", path.c_escape(), p_name));
+		}
+		path = globalize_path(path);
+		if (path.is_relative_path()) {
+			path = resource_path.path_join(path);
+		}
+		path = path.simplify_path();
+		if (!paths.has(path)) {
+			paths.push_back(path);
+		}
+	}
+	return paths;
+}
+
+// Writes the machine-specific settings that differ from their default to override.cfg and removes the others from it.
+// The file is only written when something changed. Its other settings and its leading comment lines are kept
+// (comments further down are not); a file that can't be parsed is left alone.
+Error ProjectSettings::_save_machine_specific_settings() {
+	if (machine_specific_settings.is_empty()) {
+		return OK;
+	}
+	const String path = resource_path.path_join("override.cfg");
+
+	Ref<ConfigFile> config;
+	config.instantiate();
+	String header;
+	if (FileAccess::exists(path)) {
+		const String text = FileAccess::get_file_as_string(path);
+		Error err = config->parse(text);
+		ERR_FAIL_COND_V_MSG(err != OK, err, vformat("Couldn't update \"%s\" because it can't be parsed (e.g. a path with single backslashes). Machine-specific settings such as editor/mounted_packs/paths were not saved.", path));
+		for (const String &line : text.split("\n")) {
+			const String trimmed = line.strip_edges();
+			if (!trimmed.is_empty() && !trimmed.begins_with(";")) {
+				break;
+			}
+			header += trimmed + "\n";
+		}
+	} else {
+		header = "; Machine-specific settings of this project, read on top of project.godot. Keep this file out of version control.\n"
+				 "; The editor saves editor/mounted_packs/paths, editor/mounted_assemblies/paths and editor/pre_patches/paths here.\n"
+				 "; Paths: use / (or \\\\). A single \\ is an escape character in this file and gets lost.\n"
+				 "; Relative paths are relative to the project folder.\n\n";
+	}
+
+	Vector<String> names;
+	for (const StringName &name : machine_specific_settings) {
+		names.push_back(name);
+	}
+	names.sort(); // Stable order in the file.
+
+	bool changed = false;
+	for (const String &name : names) {
+		const RBMap<StringName, VariantContainer>::Iterator setting = props.find(name);
+		if (!setting) {
+			continue;
+		}
+		const String section = name.get_slicec('/', 0);
+		const String key = name.substr(section.length() + 1);
+		const bool has_key = config->has_section_key(section, key);
+		if (setting->value.variant != setting->value.initial) {
+			if (!has_key || config->get_value(section, key) != setting->value.variant) {
+				config->set_value(section, key, setting->value.variant);
+				changed = true;
+			}
+		} else if (has_key) {
+			config->erase_section_key(section, key);
+			changed = true;
+		}
+	}
+	if (!changed) {
+		return OK;
+	}
+
+	Error err;
+	Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE, &err);
+	ERR_FAIL_COND_V_MSG(err != OK, err, vformat("Couldn't save \"%s\".", path));
+	file->store_string(header + config->encode_to_text());
+	return OK;
+}
+
 String ProjectSettings::globalize_path(const String &p_path) const {
 	if (p_path.begins_with("res://")) {
 		if (!resource_path.is_empty()) {
@@ -978,6 +1098,8 @@ Error ProjectSettings::save() {
 	Error error = save_custom(get_resource_path().path_join("project.godot"));
 	if (error == OK) {
 		last_save_time = FileAccess::get_modified_time(get_resource_path().path_join("project.godot"));
+		// project.godot leaves out the machine-specific settings (see save_custom()); they go to override.cfg.
+		error = _save_machine_specific_settings();
 	}
 	return error;
 }
@@ -1167,6 +1289,11 @@ Error ProjectSettings::save_custom(const String &p_path, const CustomMap &p_cust
 			}
 
 			if (p_custom.has(G.key)) {
+				continue;
+			}
+
+			// Saved to override.cfg instead, see save().
+			if (machine_specific_settings.has(G.key)) {
 				continue;
 			}
 

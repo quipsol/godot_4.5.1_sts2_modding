@@ -132,19 +132,9 @@ void PackedData::add_command_line_read_only_pack(const String &p_path) {
 Vector<String> PackedData::get_configured_read_only_packs() const {
 	Vector<String> packs = command_line_read_only_packs;
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
-	if (project_settings && project_settings->has_setting("editor/mounted_packs/paths")) {
-		const PackedStringArray setting = project_settings->get_setting("editor/mounted_packs/paths");
-		for (const String &entry : setting) {
-			String path = entry.strip_edges();
-			if (path.is_empty()) {
-				continue;
-			}
-			// Relative paths are relative to the project folder.
-			path = project_settings->globalize_path(path);
-			if (path.is_relative_path()) {
-				path = project_settings->get_resource_path().path_join(path);
-			}
-			path = path.simplify_path();
+	if (project_settings) {
+		// Relative paths are relative to the project folder.
+		for (const String &path : project_settings->get_machine_specific_paths("editor/mounted_packs/paths")) {
 			if (!packs.has(path)) {
 				packs.push_back(path);
 			}
