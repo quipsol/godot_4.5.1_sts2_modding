@@ -39,6 +39,7 @@
 #include "editor/gui/editor_variant_type_selectors.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/settings/editor_settings.h"
+#include "editor/settings/pre_patch_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/check_button.h"
 #include "servers/movie_writer/movie_writer.h"
@@ -832,6 +833,10 @@ ProjectSettingsEditor::ProjectSettingsEditor(EditorData *p_data) {
 	plugin_settings = memnew(EditorPluginSettings);
 	plugin_settings->set_name(TTRC("Plugins"));
 	tab_container->add_child(plugin_settings);
+
+	PrePatchSettings *pre_patch_settings = memnew(PrePatchSettings);
+	pre_patch_settings->set_name(TTRC("Pre-Patches"));
+	tab_container->add_child(pre_patch_settings);
 
 	timer = memnew(Timer);
 	timer->set_wait_time(1.5);

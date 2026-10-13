@@ -58,6 +58,7 @@
 #include "main/app_icon.gen.h"
 #include "main/main_timer_sync.h"
 #include "main/performance.h"
+#include "main/pre_patches.h"
 #include "main/splash.gen.h"
 #include "modules/register_module_types.h"
 #include "platform/register_platform_apis.h"
@@ -341,9 +342,45 @@ Vector<String> Main::get_mounted_assembly_paths() {
 }
 
 // Assemblies (.dll) whose module initializers run before the project run from the editor starts, e.g. to patch the
-// mounted game assembly with Harmony. See editor/pre_patches/paths.
+// mounted game assembly with Harmony. First the pre-patches installed with the editor that the project enables by id
+// (editor/pre_patches/enabled, in that order; see PrePatches), then the ones in editor/pre_patches/paths (e.g. while
+// developing a pre-patch), then --pre-patch.
 Vector<String> Main::get_pre_patch_paths() {
-	return _get_assembly_paths(command_line_pre_patches, "editor/pre_patches/paths");
+	Vector<String> pre_patches;
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	const PackedStringArray enabled = project_settings && project_settings->has_setting(PrePatches::ENABLED_SETTING)
+			? PackedStringArray(project_settings->get_setting(PrePatches::ENABLED_SETTING))
+			: PackedStringArray();
+	if (!enabled.is_empty()) {
+		const PrePatches::ScanResult installed = PrePatches::scan();
+		for (const String &entry : enabled) {
+			const String id = entry.strip_edges();
+			if (id.is_empty()) {
+				continue;
+			}
+			const PrePatches::PrePatch *pre_patch = installed.find(id);
+			if (pre_patch) {
+				if (!pre_patches.has(pre_patch->assembly_path)) {
+					pre_patches.push_back(pre_patch->assembly_path);
+				}
+			} else if (installed.conflicting_ids.has(id)) {
+				ERR_PRINT(vformat("Pre-patch \"%s\" is enabled, but several installed pre-patches use this id, so none of them is loaded. See Project Settings > Pre-Patches.", id));
+			} else {
+				ERR_PRINT(vformat("Pre-patch \"%s\" is enabled, but no pre-patch with this id is installed in \"%s\" (or its %s has a problem). See Project Settings > Pre-Patches.", id, PrePatches::get_directory(), PrePatches::MANIFEST_FILE_NAME));
+			}
+		}
+	}
+	for (const String &path : _get_assembly_paths(Vector<String>(), "editor/pre_patches/paths")) {
+		if (!pre_patches.has(path)) {
+			pre_patches.push_back(path);
+		}
+	}
+	for (const String &path : command_line_pre_patches) {
+		if (!pre_patches.has(path)) {
+			pre_patches.push_back(path);
+		}
+	}
+	return pre_patches;
 }
 #endif
 
@@ -2224,6 +2261,12 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		const String setting = "editor/pre_patches/paths";
 		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.dll", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
 		ProjectSettings::get_singleton()->set_machine_specific(setting, editor);
+	}
+	{
+		// Pre-patches installed with the editor (see PrePatches) that this project uses, by id, in load order. Unlike
+		// the paths above, ids are the same on every machine, so this goes in project.godot and is shared with the
+		// project. Edited in Project Settings > Pre-Patches. Loaded before the ones in editor/pre_patches/paths.
+		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, PrePatches::ENABLED_SETTING), PackedStringArray());
 	}
 
 	// Stock Godot disables packs in the editor entirely. Keep that unless packs were mounted read-only above;
