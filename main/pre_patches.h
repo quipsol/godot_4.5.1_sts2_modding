@@ -40,8 +40,8 @@
 // (the folder's name doesn't matter) with a pre_patch_manifest.json, which names the assembly in that folder:
 //
 // {
-//   "id": "moddot.native.printlog",       required, unique; letters, digits, '.', '_' and '-'
-//   "assembly": "moddot.native.printlog", required, the .dll's file name without ".dll"
+//   "id": "modot.native.printlog",        required, unique; letters, digits, '.', '_' and '-'
+//   "assembly": "modot.native.printlog",  required, the .dll's file name without ".dll"
 //   "name": "PrintLog",                   optional, shown in the editor (default: the id)
 //   "author": "...", "version": "v1.0.0", "description": "..."   optional, shown in the editor
 // }
