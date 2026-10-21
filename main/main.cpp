@@ -382,6 +382,50 @@ Vector<String> Main::get_pre_patch_paths() {
 	}
 	return pre_patches;
 }
+
+// Loads the GDExtensions of the addon folders in editor/mounted_packs/addons that come from read-only mounted packs.
+// The project's own extensions are loaded before the packs are mounted (register_core_extensions()), so these are
+// loaded afterwards and initialized up to the level reached so far. Where their native libraries come from: see
+// GDExtensionLibraryLoader. An addon folder the project has on disk is the project's, so only the pack's files count.
+static void _load_mounted_pack_extensions(const PackedStringArray &p_addons) {
+	if (p_addons.is_empty() || Engine::get_singleton()->is_recovery_mode_hint()) {
+		return;
+	}
+	const HashMap<String, Vector<String>> pack_files = PackedData::get_singleton()->get_read_only_file_paths();
+	for (const String &entry : p_addons) {
+		String addon = entry.strip_edges().replace_char('\\', '/').trim_suffix("/");
+		if (addon.is_empty()) {
+			continue;
+		}
+		if (!addon.begins_with("res://")) {
+			addon = "res://" + addon;
+		}
+		const String prefix = addon.trim_prefix("res://") + "/";
+
+		bool found = false;
+		Vector<String> extensions;
+		for (const KeyValue<String, Vector<String>> &E : pack_files) {
+			for (const String &file : E.value) {
+				if (file.begins_with(prefix)) {
+					found = true;
+					if (file.get_extension() == "gdextension") {
+						extensions.push_back("res://" + file);
+					}
+				}
+			}
+		}
+		if (!found) {
+			WARN_PRINT(vformat("Addon \"%s\" in editor/mounted_packs/addons isn't in any mounted pack (editor/mounted_packs/paths).", addon));
+			continue;
+		}
+
+		extensions.sort();
+		for (const String &extension : extensions) {
+			const GDExtensionManager::LoadStatus status = GDExtensionManager::get_singleton()->load_extension(extension);
+			ERR_CONTINUE_MSG(status == GDExtensionManager::LOAD_STATUS_FAILED, vformat("Error loading extension \"%s\" of the mounted pack addon \"%s\".", extension, addon));
+		}
+	}
+}
 #endif
 
 static String unescape_cmdline(const String &p_str) {
@@ -2244,6 +2288,17 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 
 		if (!project_manager) {
 			packed_data->mount_configured_read_only_packs();
+		}
+	}
+	{
+		// Addons of the mounted packs the project uses, by folder (e.g. res://addons/fmod of a game's pack), so they don't
+		// need to be copied into the project. Unlike the paths above, folders are the same on every machine, so this goes
+		// in project.godot. Their GDExtensions are loaded right after mounting; restarting applies changes.
+		const String setting = "editor/mounted_packs/addons";
+		GLOBAL_DEF_RST(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting), PackedStringArray());
+
+		if (!project_manager) {
+			_load_mounted_pack_extensions(GLOBAL_GET(setting));
 		}
 	}
 	{
