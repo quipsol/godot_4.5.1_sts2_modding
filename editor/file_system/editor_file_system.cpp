@@ -1725,7 +1725,7 @@ void EditorFileSystem::remove_uncompilable_mounted_script_classes() {
 		return;
 	}
 	packed_data->remove_read_only_global_classes(failed);
-	WARN_PRINT(vformat("%d script classes from read-only mounted packs can't be compiled in the editor and are left out:\n    %s\nIf they are an addon's editor tools, the addon probably needs the editor build of its GDExtension, which a game doesn't ship (see editor/mounted_packs/addons).", failed.size(), String("\n    ").join(failed_descriptions)));
+	WARN_PRINT(vformat("%d script classes from read-only mounted packs can't be compiled in the editor and are left out:\n    %s\nIf they are an addon's editor tools, the addon probably needs the editor build of its GDExtension,\nwhich a game doesn't ship (see editor/mounted_packs/addons).", failed.size(), String("\n    ").join(failed_descriptions)));
 }
 
 String EditorFileSystem::_get_file_by_class_name(EditorFileSystemDirectory *p_dir, const String &p_class_name, EditorFileSystemDirectory::FileInfo *&r_file_info) {

@@ -36,6 +36,7 @@
 #include "core/io/file_access.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
+#include "editor/plugins/mounted_pack_addons.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/margin_container.h"
 #include "scene/gui/separator.h"
@@ -134,6 +135,43 @@ void EditorPluginSettings::update_plugins() {
 		}
 	}
 
+	// Plugins of addons from read-only mounted packs, which usually have no plugin.cfg to find (see MountedPackAddons).
+	const Color disabled_color = get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor));
+	const Color warning_color = get_theme_color(SNAME("warning_color"), EditorStringName(Editor));
+	for (const MountedPackAddons::Plugin &plugin : MountedPackAddons::get_plugins()) {
+		if (plugins.has(plugin.config_path)) {
+			continue; // The project has the plugin.cfg.
+		}
+		const String name = plugin.config_path.get_base_dir().get_file();
+		const bool usable = plugin.config.is_valid();
+		const bool is_enabled = EditorNode::get_singleton()->is_addon_plugin_enabled(plugin.config_path) || MountedPackAddons::is_unavailable_enabled(plugin.config_path);
+
+		String tooltip = vformat(TTR("Name: %s\nFrom the read-only mounted pack: %s"), name, plugin.pack);
+		if (usable) {
+			tooltip += vformat(TTR("\nMain Script: %s\n\n%s"), plugin.config_path.get_base_dir().path_join(plugin.config->get_value("plugin", "script")), String(plugin.config->get_value("plugin", "description")));
+		} else {
+			tooltip += "\n\n" + plugin.error;
+		}
+
+		TreeItem *item = plugin_list->create_item(root);
+		item->set_text(COLUMN_NAME, name);
+		if (!usable) {
+			item->set_custom_color(COLUMN_NAME, warning_color);
+		} else if (!is_enabled) {
+			item->set_custom_color(COLUMN_NAME, disabled_color);
+		}
+		item->set_tooltip_text(COLUMN_NAME, tooltip);
+		item->set_metadata(COLUMN_NAME, plugin.config_path);
+		item->set_text(COLUMN_AUTHOR, plugin.pack.get_file()); // Where it comes from; there's no author to show.
+		item->set_custom_color(COLUMN_AUTHOR, disabled_color);
+		item->set_tooltip_text(COLUMN_AUTHOR, tooltip);
+		item->set_cell_mode(COLUMN_STATUS, TreeItem::CELL_MODE_CHECK);
+		item->set_text(COLUMN_STATUS, TTRC("On"));
+		item->set_checked(COLUMN_STATUS, is_enabled);
+		item->set_editable(COLUMN_STATUS, true);
+		// No Edit button: there is no plugin.cfg to edit.
+	}
+
 	updating = false;
 }
 
@@ -149,7 +187,8 @@ void EditorPluginSettings::_plugin_activity_changed() {
 
 	EditorNode::get_singleton()->set_addon_plugin_enabled(name, checked, true);
 
-	bool is_enabled = EditorNode::get_singleton()->is_addon_plugin_enabled(name);
+	// A mounted pack addon's plugin can stay enabled without running (see MountedPackAddons).
+	bool is_enabled = EditorNode::get_singleton()->is_addon_plugin_enabled(name) || MountedPackAddons::is_unavailable_enabled(name);
 
 	if (is_enabled != checked) {
 		updating = true;

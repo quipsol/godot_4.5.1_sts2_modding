@@ -128,6 +128,7 @@ private:
 	PackedFile read_only_class_cache; // The current mount's .godot/global_script_class_cache.cfg, read after parsing.
 	bool has_read_only_class_cache = false;
 	Array read_only_global_classes; // See get_read_only_global_classes().
+	Array read_only_uncompilable_global_classes; // See remove_read_only_global_classes().
 
 	// Read-only mounts can be remounted while other threads (file system scans, previews, threaded loads) look files up,
 	// so once they exist, the index is guarded. The thread that is mounting doesn't lock again: opening the .pck
@@ -205,7 +206,10 @@ public:
 	// in the same format. Only the classes whose scripts a pack provides itself; on a name collision the earlier pack wins.
 	// ProjectSettings adds them to the project's global classes, but never saves them to the project's cache.
 	Array get_read_only_global_classes() const;
-	void remove_read_only_global_classes(const HashSet<String> &p_classes); // E.g. classes that can't be compiled here; until remounting.
+	// Takes classes that can't be compiled here out of get_read_only_global_classes(), until remounting.
+	// They are kept, in the same format, in get_read_only_uncompilable_global_classes(), e.g. to explain why.
+	void remove_read_only_global_classes(const HashSet<String> &p_classes);
+	Array get_read_only_uncompilable_global_classes() const;
 	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
 	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
 	// Same for a script, which an exported pack often only contains as its .remap (e.g. GDScript compiled to .gdc).

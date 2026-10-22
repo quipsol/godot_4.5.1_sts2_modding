@@ -140,6 +140,7 @@
 #include "editor/inspector/multi_node_edit.h"
 #include "editor/plugins/editor_plugin.h"
 #include "editor/plugins/editor_resource_conversion_plugin.h"
+#include "editor/plugins/mounted_pack_addons.h"
 #include "editor/plugins/plugin_config_dialog.h"
 #include "editor/project_upgrade/project_upgrade_tool.h"
 #include "editor/run/editor_run.h"
@@ -4083,6 +4084,12 @@ void EditorNode::_update_addon_config() {
 	for (const KeyValue<String, EditorPlugin *> &E : addon_name_to_plugin) {
 		enabled_addons.push_back(E.key);
 	}
+	// Enabled, but not running right now (see MountedPackAddons): they stay enabled.
+	for (const String &addon : MountedPackAddons::get_unavailable_enabled()) {
+		if (!enabled_addons.has(addon)) {
+			enabled_addons.push_back(addon);
+		}
+	}
 
 	if (enabled_addons.is_empty()) {
 		ProjectSettings::get_singleton()->set("editor_plugins/enabled", Variant());
@@ -4101,6 +4108,13 @@ void EditorNode::set_addon_plugin_enabled(const String &p_addon, bool p_enabled,
 		addon_path = "res://addons/" + addon_path + "/plugin.cfg";
 	}
 
+	// A mounted pack addon's plugin that is enabled but can't run right now: disabling only takes it off the list.
+	if (!p_enabled && !addon_name_to_plugin.has(addon_path) && MountedPackAddons::is_unavailable_enabled(addon_path)) {
+		MountedPackAddons::set_unavailable_enabled(addon_path, false);
+		_update_addon_config();
+		return;
+	}
+
 	ERR_FAIL_COND(p_enabled && addon_name_to_plugin.has(addon_path));
 	ERR_FAIL_COND(!p_enabled && !addon_name_to_plugin.has(addon_path));
 
@@ -4113,17 +4127,37 @@ void EditorNode::set_addon_plugin_enabled(const String &p_addon, bool p_enabled,
 		return;
 	}
 
-	Ref<ConfigFile> cf;
-	cf.instantiate();
-	if (!DirAccess::exists(addon_path.get_base_dir())) {
-		_remove_plugin_from_enabled(addon_path);
-		WARN_PRINT("Addon '" + addon_path + "' failed to load. No directory found. Removing from enabled plugins.");
+	// An addon from a read-only mounted pack, which usually doesn't contain the addon's plugin.cfg (see MountedPackAddons).
+	MountedPackAddons::Plugin mounted_plugin;
+	const MountedPackAddons::Result mounted = MountedPackAddons::get_plugin(addon_path, mounted_plugin);
+	if (mounted == MountedPackAddons::NOT_LISTED || (mounted == MountedPackAddons::FOUND && mounted_plugin.config.is_null())) {
+		// It stays enabled (see _update_addon_config()), so it runs once that's fixed.
+		MountedPackAddons::set_unavailable_enabled(addon_path, true);
+		_update_addon_config();
+		if (_initializing_plugins) {
+			WARN_PRINT(mounted_plugin.error);
+		} else {
+			show_warning(mounted_plugin.error);
+		}
 		return;
 	}
-	Error err = cf->load(addon_path);
-	if (err != OK) {
-		show_warning(vformat(TTR("Unable to enable addon plugin at: '%s' parsing of config failed."), addon_path));
-		return;
+	MountedPackAddons::set_unavailable_enabled(addon_path, false);
+
+	Ref<ConfigFile> cf;
+	if (mounted == MountedPackAddons::FOUND) {
+		cf = mounted_plugin.config;
+	} else {
+		cf.instantiate();
+		if (!DirAccess::exists(addon_path.get_base_dir())) {
+			_remove_plugin_from_enabled(addon_path);
+			WARN_PRINT("Addon '" + addon_path + "' failed to load. No directory found. Removing from enabled plugins.");
+			return;
+		}
+		Error err = cf->load(addon_path);
+		if (err != OK) {
+			show_warning(vformat(TTR("Unable to enable addon plugin at: '%s' parsing of config failed."), addon_path));
+			return;
+		}
 	}
 
 	String plugin_version;

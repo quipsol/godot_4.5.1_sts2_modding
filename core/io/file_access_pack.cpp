@@ -233,6 +233,7 @@ void PackedData::_clear_read_only_state() {
 	read_only_mount_count = 0;
 	mounted_read_only_packs.clear();
 	read_only_global_classes.clear();
+	read_only_uncompilable_global_classes.clear();
 	MutexLock lock(shadow_warning_mutex);
 	shadow_warnings.clear();
 	// The mounted UIDs are cleared by the callers after unlocking (see mount_read_only_pack() for why).
@@ -372,10 +373,19 @@ void PackedData::remove_read_only_global_classes(const HashSet<String> &p_classe
 	_lock_mounts_for_writing();
 	for (int i = read_only_global_classes.size() - 1; i >= 0; i--) {
 		if (p_classes.has(Dictionary(read_only_global_classes[i]).get("class", String()))) {
+			read_only_uncompilable_global_classes.push_back(read_only_global_classes[i]);
 			read_only_global_classes.remove_at(i);
 		}
 	}
 	_unlock_mounts_for_writing();
+}
+
+Array PackedData::get_read_only_uncompilable_global_classes() const {
+	if (read_only_mount_count == 0) {
+		return Array();
+	}
+	MountsReadLock lock(this);
+	return read_only_uncompilable_global_classes.duplicate();
 }
 
 bool PackedData::_is_excluded_from_read_only_mount(const String &p_simplified_path) {

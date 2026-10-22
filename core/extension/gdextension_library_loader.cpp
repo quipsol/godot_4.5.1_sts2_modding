@@ -43,10 +43,17 @@ static String _get_providing_read_only_pack(const String &p_path) {
 	return packed_data ? packed_data->get_pack_shadowed_by_writing(p_path) : String();
 }
 
+// Libraries for the GDExtensions of read-only mounted packs that users install themselves, e.g. an addon's editor build
+// that a game doesn't ship. Searched first; the libraries a library depends on can go next to it.
+static String _get_gdextension_libraries_dir() {
+	return OS::get_singleton()->get_executable_path().get_base_dir().path_join("gdextension_libraries");
+}
+
 // A .gdextension from a read-only mounted pack names libraries the pack can't contain: native libraries are loaded from
 // the disk. A game ships them next to its executable, which is usually also where its pack is, and only in their release
-// variant. So the library is looked for in the project (where the .gdextension names it), next to the pack, and next to
-// the editor, and if the variant for this build isn't there, its debug and then release variants are tried too.
+// variant. So the library is looked for in the project (where the .gdextension names it), in gdextension_libraries/
+// next to the editor, next to the pack, and next to the editor, and if the variant for this build isn't in any of them,
+// its debug and then release variants are tried too.
 // Returns the library's absolute path, or an empty string; r_has_feature and r_variant tell which variant it is.
 static String _find_mounted_pack_library(const String &p_path, const Ref<ConfigFile> &p_config, const String &p_pack, std::function<bool(String)> &r_has_feature, String &r_variant) {
 	const std::function<bool(String)> has_feature = [](const String &p_feature) { return OS::get_singleton()->has_feature(p_feature); };
@@ -62,13 +69,13 @@ static String _find_mounted_pack_library(const String &p_path, const Ref<ConfigF
 	};
 	const char *variant_names[3] = { "", "debug", "release" };
 
-	const String folders[2] = { p_pack.get_base_dir(), OS::get_singleton()->get_executable_path().get_base_dir() };
+	const String folders[3] = { _get_gdextension_libraries_dir(), p_pack.get_base_dir(), OS::get_singleton()->get_executable_path().get_base_dir() };
 	for (int i = 0; i < 3; i++) {
 		const String library = GDExtensionLibraryLoader::find_extension_library(p_path, p_config, variants[i]);
 		if (library.is_empty()) {
 			continue;
 		}
-		const String candidates[3] = { ProjectSettings::get_singleton()->globalize_path(library), folders[0].path_join(library.get_file()), folders[1].path_join(library.get_file()) };
+		const String candidates[4] = { ProjectSettings::get_singleton()->globalize_path(library), folders[0].path_join(library.get_file()), folders[1].path_join(library.get_file()), folders[2].path_join(library.get_file()) };
 		for (const String &candidate : candidates) {
 			// Absolute paths, so only the disk is checked, not the packs.
 			if (candidate.is_absolute_path() && FileAccess::exists(candidate)) {
@@ -418,7 +425,7 @@ Error GDExtensionLibraryLoader::parse_gdextension_file(const String &p_path) {
 		String variant;
 		const String found = _find_mounted_pack_library(p_path, config, pack, has_feature, variant);
 		if (found.is_empty()) {
-			ERR_PRINT(vformat("GDExtension \"%s\" is from the mounted pack \"%s\", but none of its libraries for this platform (editor, debug or release variant) is in the project, next to the pack, or next to the editor.", p_path, pack));
+			ERR_PRINT(vformat("GDExtension \"%s\" is from the mounted pack \"%s\", but none of its libraries for this platform (editor, debug or release variant) is in the project, in \"%s\", next to the pack, or next to the editor.", p_path, pack, _get_gdextension_libraries_dir()));
 			return ERR_FILE_NOT_FOUND;
 		}
 		library_path = found;
