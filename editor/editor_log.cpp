@@ -42,6 +42,11 @@
 #include "scene/resources/font.h"
 
 void EditorLog::_error_handler(void *p_self, const char *p_func, const char *p_file, int p_line, const char *p_error, const char *p_errorexp, bool p_editor_notify, ErrorHandlerType p_type) {
+	// Like the console (see Logger::should_log()): Engine.print_error_messages also covers the Output panel.
+	if (!Engine::get_singleton()->is_printing_error_messages()) {
+		return;
+	}
+
 	EditorLog *self = static_cast<EditorLog *>(p_self);
 
 	String err_str;

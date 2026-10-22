@@ -205,6 +205,7 @@ public:
 	// in the same format. Only the classes whose scripts a pack provides itself; on a name collision the earlier pack wins.
 	// ProjectSettings adds them to the project's global classes, but never saves them to the project's cache.
 	Array get_read_only_global_classes() const;
+	void remove_read_only_global_classes(const HashSet<String> &p_classes); // E.g. classes that can't be compiled here; until remounting.
 	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
 	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
 	// Same for a script, which an exported pack often only contains as its .remap (e.g. GDScript compiled to .gdc).

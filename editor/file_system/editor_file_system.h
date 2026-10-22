@@ -413,6 +413,8 @@ public:
 	static bool _should_skip_directory(const String &p_path);
 
 	static void scan_for_uid();
+	// Leaves out the read-only mounted packs' script classes that can't be compiled here (see the .cpp).
+	static void remove_uncompilable_mounted_script_classes();
 
 	void add_import_format_support_query(Ref<EditorFileSystemImportFormatSupportQuery> p_query);
 	void remove_import_format_support_query(Ref<EditorFileSystemImportFormatSupportQuery> p_query);

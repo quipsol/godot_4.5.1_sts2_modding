@@ -340,6 +340,9 @@ void EditorFileSystem::_first_scan_filesystem() {
 	ep.step(TTR("Creating autoload scripts..."), 3, true);
 	ProjectSettingsEditor::get_singleton()->init_autoloads();
 
+	// After the autoloads (scripts can use their names), before the plugins (which can use the classes).
+	remove_uncompilable_mounted_script_classes();
+
 	ep.step(TTR("Initializing plugins..."), 4, true);
 	EditorNode::get_singleton()->init_plugins();
 
@@ -1665,6 +1668,64 @@ bool EditorFileSystem::_remove_invalid_global_class_names(const HashSet<String> 
 		}
 	}
 	return must_save;
+}
+
+// The read-only mounted packs' script classes are registered from their class caches without being compiled (see
+// PackedData::get_read_only_global_classes()). Some of a game's scripts can't compile in the editor, e.g. an addon's
+// editor tools that use classes only the editor build of its GDExtension has, when only the game's release build is
+// available. The editor loads registered classes again and again (Create New Node, autocompletion, ...), so each time
+// would report the same errors; such classes are compiled here, quietly, and left out with one warning instead.
+// Whether a script compiles can depend on others (e.g. a parameter typed with a class that doesn't compile), so after
+// leaving classes out, the rest are compiled again until nothing changes.
+// Only GDScript classes: a pack's C# scripts are placeholders for types in its mounted assembly.
+void EditorFileSystem::remove_uncompilable_mounted_script_classes() {
+	PackedData *packed_data = PackedData::get_singleton();
+	if (!packed_data || !packed_data->has_read_only_mounts()) {
+		return;
+	}
+
+	HashMap<String, String> remaining; // Class name -> script path.
+	for (const Variant &entry : packed_data->get_read_only_global_classes()) {
+		const Dictionary script_class = entry;
+		const String class_name = script_class.get("class", String());
+		const String path = script_class.get("path", String());
+		// Not GDScript, or the project has its own class of that name.
+		if (String(script_class.get("language", String())) == "GDScript" && ScriptServer::get_global_class_path(class_name) == path) {
+			remaining[class_name] = path;
+		}
+	}
+
+	HashSet<String> failed;
+	Vector<String> failed_descriptions;
+	const bool printing_errors = Engine::get_singleton()->is_printing_error_messages();
+	Engine::get_singleton()->set_print_error_messages(false);
+	for (bool recompile = false;; recompile = true) {
+		HashSet<String> failed_now;
+		for (const KeyValue<String, String> &E : remaining) {
+			const Ref<Script> scr = ResourceLoader::load(E.value);
+			// The first round compiles each script once; later rounds compile again without the classes left out so far.
+			// Like the editor's reloading of changed scripts, this keeps the state of existing instances.
+			if (scr.is_null() || (recompile ? scr->reload(true) != OK : !scr->is_valid())) {
+				failed_now.insert(E.key);
+			}
+		}
+		if (failed_now.is_empty()) {
+			break;
+		}
+		for (const String &class_name : failed_now) {
+			ScriptServer::remove_global_class(class_name);
+			failed.insert(class_name);
+			failed_descriptions.push_back(vformat("%s (%s)", class_name, remaining[class_name]));
+			remaining.erase(class_name);
+		}
+	}
+	Engine::get_singleton()->set_print_error_messages(printing_errors);
+
+	if (failed.is_empty()) {
+		return;
+	}
+	packed_data->remove_read_only_global_classes(failed);
+	WARN_PRINT(vformat("%d script classes from read-only mounted packs can't be compiled in the editor and are left out:\n    %s\nIf they are an addon's editor tools, the addon probably needs the editor build of its GDExtension, which a game doesn't ship (see editor/mounted_packs/addons).", failed.size(), String("\n    ").join(failed_descriptions)));
 }
 
 String EditorFileSystem::_get_file_by_class_name(EditorFileSystemDirectory *p_dir, const String &p_class_name, EditorFileSystemDirectory::FileInfo *&r_file_info) {

@@ -365,6 +365,19 @@ Array PackedData::get_read_only_global_classes() const {
 	return read_only_global_classes.duplicate();
 }
 
+void PackedData::remove_read_only_global_classes(const HashSet<String> &p_classes) {
+	if (p_classes.is_empty()) {
+		return;
+	}
+	_lock_mounts_for_writing();
+	for (int i = read_only_global_classes.size() - 1; i >= 0; i--) {
+		if (p_classes.has(Dictionary(read_only_global_classes[i]).get("class", String()))) {
+			read_only_global_classes.remove_at(i);
+		}
+	}
+	_unlock_mounts_for_writing();
+}
+
 bool PackedData::_is_excluded_from_read_only_mount(const String &p_simplified_path) {
 	// Project-level files must always come from the project itself. Imported/exported resources
 	// under .godot/ are what the pack's .import and .remap files point to, so those are kept.

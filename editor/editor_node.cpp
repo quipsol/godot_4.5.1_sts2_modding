@@ -467,19 +467,23 @@ void EditorNode::remount_read_only_packs() {
 		}
 	}
 	ProjectSettings::get_singleton()->refresh_global_class_list(); // Adds the remounted packs' classes.
+	EditorFileSystem::remove_uncompilable_mounted_script_classes();
 
 	// Resources already loaded from the packs keep the data they were loaded with; reload them from the new packs.
 	// Scripts are left alone: the game's C# scripts are placeholder files bound to types in its assembly.
+	// GDExtensions too: a loaded extension's library can't be swapped like a resource's data.
 	List<Ref<Resource>> cached;
 	ResourceCache::get_cached_resources(&cached);
 	int reloaded = 0;
 	for (Ref<Resource> &resource : cached) {
 		const String path = resource->get_path();
-		if (!path.begins_with("res://") || path.contains("::") || resource->is_class("Script")) {
+		if (!path.begins_with("res://") || path.contains("::") || resource->is_class("Script") || resource->is_class("GDExtension")) {
 			continue;
 		}
 		if (packed_data->is_read_only_path(path) || packed_data->is_read_only_path(path + ".import") || packed_data->is_read_only_path(path + ".remap")) {
 			resource->reload_from_file();
+			// Reloading sets the resource's properties, which marks it as edited; it isn't changed, though.
+			resource->set_edited(false);
 			reloaded++;
 		}
 	}
