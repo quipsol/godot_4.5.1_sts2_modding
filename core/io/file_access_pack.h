@@ -125,6 +125,9 @@ private:
 	int read_only_pack_collisions = 0; // Files skipped during the current mount because an earlier pack provided them.
 	PackedFile read_only_uid_cache; // The current mount's .godot/uid_cache.bin, read after parsing.
 	bool has_read_only_uid_cache = false;
+	PackedFile read_only_class_cache; // The current mount's .godot/global_script_class_cache.cfg, read after parsing.
+	bool has_read_only_class_cache = false;
+	Array read_only_global_classes; // See get_read_only_global_classes().
 
 	// Read-only mounts can be remounted while other threads (file system scans, previews, threaded loads) look files up,
 	// so once they exist, the index is guarded. The thread that is mounting doesn't lock again: opening the .pck
@@ -158,6 +161,7 @@ private:
 	HashSet<String> shadow_warnings; // Mounted paths already reported as replaced by a project file.
 
 	int _register_read_only_uids(PackedFile p_uid_cache, const String &p_pack_path);
+	int _register_read_only_global_classes(PackedFile p_class_cache, const String &p_pack_path);
 	bool _remove_read_only_files(PackedDir *p_dir, const String &p_dir_path); // Returns true if anything was removed.
 	void _get_read_only_file_paths(const PackedDir *p_dir, const String &p_dir_path, HashMap<String, Vector<String>> &r_paths) const;
 	void _clear_read_only_state();
@@ -197,8 +201,14 @@ public:
 	const Vector<String> &get_mounted_read_only_packs() const { return mounted_read_only_packs; }
 	// The files of the read-only mounted packs by pack, as stored in them (relative to res://, sidecars and .godot/ included).
 	HashMap<String, Vector<String>> get_read_only_file_paths() const;
+	// The global script classes (class_name) of the read-only mounted packs, from their .godot/global_script_class_cache.cfg,
+	// in the same format. Only the classes whose scripts a pack provides itself; on a name collision the earlier pack wins.
+	// ProjectSettings adds them to the project's global classes, but never saves them to the project's cache.
+	Array get_read_only_global_classes() const;
 	bool has_read_only_mounts() const { return read_only_mount_count > 0; }
 	_FORCE_INLINE_ bool is_read_only_path(const String &p_path); // Served from a read-only mount (not shadowed by the disk).
+	// Same for a script, which an exported pack often only contains as its .remap (e.g. GDScript compiled to .gdc).
+	bool is_read_only_script(const String &p_path) { return is_read_only_path(p_path) || is_read_only_path(p_path + ".remap"); }
 	// The read-only mounted pack whose file a write to p_path would shadow, or an empty string.
 	// Paths under .godot/ never count: that is the project's own cache (e.g. imported data of a project file).
 	String get_pack_shadowed_by_writing(const String &p_path);

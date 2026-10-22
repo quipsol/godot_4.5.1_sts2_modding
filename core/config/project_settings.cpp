@@ -1462,24 +1462,40 @@ void ProjectSettings::refresh_global_class_list() {
 }
 
 TypedArray<Dictionary> ProjectSettings::get_global_class_list() {
-	if (is_global_class_list_loaded) {
-		return global_class_list;
-	}
-
-	Ref<ConfigFile> cf;
-	cf.instantiate();
-	if (cf->load(get_global_class_list_path()) == OK) {
-		global_class_list = cf->get_value("", "list", Array());
-	} else {
+	if (!is_global_class_list_loaded) {
+		Ref<ConfigFile> cf;
+		cf.instantiate();
+		if (cf->load(get_global_class_list_path()) == OK) {
+			global_class_list = cf->get_value("", "list", Array());
+		} else {
 #ifndef TOOLS_ENABLED
-		// Script classes can't be recreated in exported project, so print an error.
-		ERR_PRINT("Could not load global script cache.");
+			// Script classes can't be recreated in exported project, so print an error.
+			ERR_PRINT("Could not load global script cache.");
 #endif
+		}
+
+		// File read succeeded or failed. If it failed, assume everything is still okay.
+		// We will later receive updated class data in store_global_class_list().
+		is_global_class_list_loaded = true;
 	}
 
-	// File read succeeded or failed. If it failed, assume everything is still okay.
-	// We will later receive updated class data in store_global_class_list().
-	is_global_class_list_loaded = true;
+	// The script classes of read-only mounted packs (e.g. a game's addons) count too, unless the project has its own
+	// class of that name. They are never saved to the project's cache (see store_global_class_list()).
+	PackedData *packed_data = PackedData::get_singleton();
+	const Array mounted_classes = packed_data ? packed_data->get_read_only_global_classes() : Array();
+	if (!mounted_classes.is_empty()) {
+		HashSet<String> project_classes;
+		for (const Variant &script_class : global_class_list) {
+			project_classes.insert(Dictionary(script_class).get("class", String()));
+		}
+		TypedArray<Dictionary> classes(global_class_list.duplicate());
+		for (const Variant &script_class : mounted_classes) {
+			if (!project_classes.has(Dictionary(script_class).get("class", String()))) {
+				classes.push_back(script_class);
+			}
+		}
+		return classes;
+	}
 
 	return global_class_list;
 }
@@ -1489,12 +1505,24 @@ String ProjectSettings::get_global_class_list_path() const {
 }
 
 void ProjectSettings::store_global_class_list(const Array &p_classes) {
+	// Classes whose scripts come from read-only mounted packs belong to the packs (see get_global_class_list()).
+	Array classes = p_classes;
+	PackedData *packed_data = PackedData::get_singleton();
+	if (packed_data && packed_data->has_read_only_mounts()) {
+		classes = Array();
+		for (const Variant &script_class : p_classes) {
+			if (!packed_data->is_read_only_script(Dictionary(script_class).get("path", String()))) {
+				classes.push_back(script_class);
+			}
+		}
+	}
+
 	Ref<ConfigFile> cf;
 	cf.instantiate();
-	cf->set_value("", "list", p_classes);
+	cf->set_value("", "list", classes);
 	cf->save(get_global_class_list_path());
 
-	global_class_list = p_classes;
+	global_class_list = classes;
 }
 
 bool ProjectSettings::has_custom_feature(const String &p_feature) const {

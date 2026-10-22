@@ -1653,8 +1653,13 @@ bool EditorFileSystem::_remove_invalid_global_class_names(const HashSet<String> 
 	List<StringName> global_classes;
 	bool must_save = false;
 	ScriptServer::get_global_class_list(&global_classes);
+	PackedData *packed_data = PackedData::get_singleton();
 	for (const StringName &class_name : global_classes) {
 		if (!p_existing_class_names.has(class_name)) {
+			// The scan only sees the project's files; a class whose script comes from a read-only mounted pack is valid.
+			if (packed_data && packed_data->is_read_only_script(ScriptServer::get_global_class_path(class_name))) {
+				continue;
+			}
 			ScriptServer::remove_global_class(class_name);
 			must_save = true;
 		}

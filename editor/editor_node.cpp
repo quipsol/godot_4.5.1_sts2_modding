@@ -448,7 +448,25 @@ void EditorNode::_check_mounted_packs_setting() {
 void EditorNode::remount_read_only_packs() {
 	PackedData *packed_data = PackedData::get_singleton();
 	mounted_packs_configuration = packed_data->get_configured_read_only_packs();
+
+	// The packs' script classes go with them (see PackedData::get_read_only_global_classes()).
+	Vector<StringName> mounted_classes;
+	{
+		List<StringName> global_classes;
+		ScriptServer::get_global_class_list(&global_classes);
+		for (const StringName &class_name : global_classes) {
+			if (packed_data->is_read_only_script(ScriptServer::get_global_class_path(class_name))) {
+				mounted_classes.push_back(class_name);
+			}
+		}
+	}
 	packed_data->remount_read_only_packs();
+	for (const StringName &class_name : mounted_classes) {
+		if (!packed_data->is_read_only_script(ScriptServer::get_global_class_path(class_name))) {
+			ScriptServer::remove_global_class(class_name);
+		}
+	}
+	ProjectSettings::get_singleton()->refresh_global_class_list(); // Adds the remounted packs' classes.
 
 	// Resources already loaded from the packs keep the data they were loaded with; reload them from the new packs.
 	// Scripts are left alone: the game's C# scripts are placeholder files bound to types in its assembly.

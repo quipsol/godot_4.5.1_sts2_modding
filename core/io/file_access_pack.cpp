@@ -31,6 +31,7 @@
 #include "file_access_pack.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/config_file.h"
 #include "core/io/file_access_encrypted.h"
 #include "core/io/resource_uid.h"
 #include "core/object/script_language.h"
@@ -67,6 +68,7 @@ Error PackedData::mount_read_only_pack(const String &p_path) {
 	read_only_disk_collisions.clear();
 	read_only_pack_collisions = 0;
 	has_read_only_uid_cache = false;
+	has_read_only_class_cache = false;
 	int files_before = files.size();
 
 	mounting_read_only = true;
@@ -87,12 +89,16 @@ Error PackedData::mount_read_only_pack(const String &p_path) {
 	PackedFile uid_cache = read_only_uid_cache;
 	const bool has_uid_cache = has_read_only_uid_cache;
 	has_read_only_uid_cache = false;
+	PackedFile class_cache = read_only_class_cache;
+	const bool has_class_cache = has_read_only_class_cache;
+	has_read_only_class_cache = false;
 	// ResourceUID has its own lock and can look files up while holding it, so it's only called after unlocking.
 	_unlock_mounts_for_writing();
 
 	const int uid_count = has_uid_cache ? _register_read_only_uids(uid_cache, p_path) : 0;
+	const int class_count = has_class_cache ? _register_read_only_global_classes(class_cache, p_path) : 0;
 
-	print_line(vformat("Mounted pack \"%s\" read-only: %d files, %d UIDs.", p_path, file_count, uid_count));
+	print_line(vformat("Mounted pack \"%s\" read-only: %d files, %d UIDs, %d script classes.", p_path, file_count, uid_count, class_count));
 	// The project's own imported data under .godot/ often shares names with the pack's (same source path); that's routine.
 	Vector<String> disk_collisions;
 	for (const String &path : all_disk_collisions) {
@@ -226,6 +232,7 @@ void PackedData::_get_read_only_file_paths(const PackedDir *p_dir, const String 
 void PackedData::_clear_read_only_state() {
 	read_only_mount_count = 0;
 	mounted_read_only_packs.clear();
+	read_only_global_classes.clear();
 	MutexLock lock(shadow_warning_mutex);
 	shadow_warnings.clear();
 	// The mounted UIDs are cleared by the callers after unlocking (see mount_read_only_pack() for why).
@@ -303,6 +310,61 @@ int PackedData::_register_read_only_uids(PackedFile p_uid_cache, const String &p
 	return registered;
 }
 
+int PackedData::_register_read_only_global_classes(PackedFile p_class_cache, const String &p_pack_path) {
+	// Same format as ProjectSettings::store_global_class_list(): a ConfigFile with the classes in "list".
+	Ref<FileAccess> f = p_class_cache.src->get_file("res://.godot/global_script_class_cache.cfg", &p_class_cache);
+	ERR_FAIL_COND_V_MSG(f.is_null(), 0, vformat("Mounted pack \"%s\": could not read its script class cache.", p_pack_path));
+	Ref<ConfigFile> config;
+	config.instantiate();
+	ERR_FAIL_COND_V_MSG(config->parse(f->get_as_utf8_string()) != OK, 0, vformat("Mounted pack \"%s\": could not parse its script class cache.", p_pack_path));
+	const Array list = config->get_value("", "list", Array());
+
+	Array registered;
+	{
+		MountsReadLock lock(this);
+		HashSet<String> known_classes;
+		for (const Variant &existing : read_only_global_classes) {
+			known_classes.insert(Dictionary(existing).get("class", String()));
+		}
+		for (const Variant &entry : list) {
+			const Dictionary script_class = entry;
+			const String class_name = script_class.get("class", String());
+			if (class_name.is_empty() || known_classes.has(class_name)) {
+				continue; // An earlier pack's class of the same name wins, like its files do.
+			}
+			// Only scripts this pack provides itself: not the project's (a file on disk wins), nor an earlier pack's.
+			// An exported pack often only has the script's .remap (e.g. GDScript compiled to .gdc).
+			const String path = String(script_class.get("path", String())).trim_prefix("res://");
+			bool provided = false;
+			for (const String &file : { path, path + ".remap" }) {
+				HashMap<PathMD5, PackedFile, PathMD5>::ConstIterator E = files.find(PathMD5(file.md5_buffer()));
+				if (E && E->value.read_only && E->value.pack == p_pack_path) {
+					provided = true;
+					break;
+				}
+			}
+			if (!provided) {
+				continue;
+			}
+			registered.push_back(script_class);
+			known_classes.insert(class_name);
+		}
+	}
+
+	_lock_mounts_for_writing();
+	read_only_global_classes.append_array(registered);
+	_unlock_mounts_for_writing();
+	return registered.size();
+}
+
+Array PackedData::get_read_only_global_classes() const {
+	if (read_only_mount_count == 0) {
+		return Array();
+	}
+	MountsReadLock lock(this);
+	return read_only_global_classes.duplicate();
+}
+
 bool PackedData::_is_excluded_from_read_only_mount(const String &p_simplified_path) {
 	// Project-level files must always come from the project itself. Imported/exported resources
 	// under .godot/ are what the pack's .import and .remap files point to, so those are kept.
@@ -365,6 +427,12 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 			// Not mounted (the project has its own cache), but mount_read_only_pack() registers its UIDs.
 			read_only_uid_cache = pf;
 			has_read_only_uid_cache = true;
+			return;
+		}
+		if (simplified_path == ".godot/global_script_class_cache.cfg") {
+			// Same: the project has its own, but mount_read_only_pack() registers the pack's script classes.
+			read_only_class_cache = pf;
+			has_read_only_class_cache = true;
 			return;
 		}
 		if (_is_excluded_from_read_only_mount(simplified_path)) {
