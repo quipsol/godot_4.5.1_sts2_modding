@@ -797,6 +797,7 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--export-debug <preset> <path>", "Export the project in debug mode using the given preset and output path. See --export-release description for other considerations.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--export-pack <preset> <path>", "Export the project data only using the given preset and output path. The <path> extension determines whether it will be in PCK or ZIP format.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--export-patch <preset> <path>", "Export pack with changed files only. See --export-pack description for other considerations.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--pack-mod <packer> <path>", "Pack the project's mod into a .pck at <path> with a mod packer installed in the editor's mod_packers folder (its id), or with a packer script (its path). Arguments after \"--\" are passed to the packer.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--patches <paths>", "List of patches to use with --export-patch. The list is comma-separated.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--install-android-build-template", "Install the Android build template. Used in conjunction with --export-release or --export-debug.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifndef DISABLE_DEPRECATED
@@ -1691,7 +1692,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			wait_for_import = true;
 			quit_after = 1;
 		} else if (arg == "--export-release" || arg == "--export-debug" ||
-				arg == "--export-pack" || arg == "--export-patch") { // Export project
+				arg == "--export-pack" || arg == "--export-patch" || arg == "--pack-mod") { // Export project
 			// Actually handling is done in start().
 			editor = true;
 			cmdline_tool = true;
@@ -2300,6 +2301,13 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		if (!project_manager) {
 			_load_mounted_pack_extensions(GLOBAL_GET(setting));
 		}
+	}
+	{
+		// Project > Pack Mod... (see ModPackers): the mod packer's id is the project's, the output path is machine-specific.
+		GLOBAL_DEF("editor/mod_packer/packer", String());
+		const String output_setting = "editor/mod_packer/output_path";
+		GLOBAL_DEF(PropertyInfo(Variant::STRING, output_setting, PROPERTY_HINT_GLOBAL_SAVE_FILE, "*.pck"), String());
+		ProjectSettings::get_singleton()->set_machine_specific(output_setting, editor);
 	}
 	{
 		// .NET assemblies loaded before the project assembly, into the same load context (e.g. a game's assembly
@@ -4086,6 +4094,7 @@ int Main::start() {
 	bool export_pack_only = false;
 	bool install_android_build_template = false;
 	bool export_patch = false;
+	String pack_mod_packer;
 #ifdef MODULE_GDSCRIPT_ENABLED
 	String gdscript_docs_path;
 #endif
@@ -4191,6 +4200,10 @@ int Main::start() {
 				_export_preset = E->next()->get();
 				export_pack_only = true;
 				export_patch = true;
+			} else if (E->get() == "--pack-mod") {
+				ERR_FAIL_COND_V_MSG(!editor && !found_project, EXIT_FAILURE, "Please provide a valid project path when packing a mod, aborting.");
+				editor = true;
+				pack_mod_packer = E->next()->get();
 			} else if (E->get() == "--patches") {
 				patches = E->next()->get().split(",", false);
 #endif
@@ -4624,6 +4637,14 @@ int Main::start() {
 
 			if (!_export_preset.is_empty()) {
 				editor_node->export_preset(_export_preset, positional_arg, export_debug, export_pack_only, install_android_build_template, export_patch, patches);
+				game_path = ""; // Do not load anything.
+			}
+			if (!pack_mod_packer.is_empty()) {
+				Vector<String> pack_mod_args;
+				for (const String &arg : OS::get_singleton()->get_cmdline_user_args()) {
+					pack_mod_args.push_back(arg);
+				}
+				editor_node->pack_mod(pack_mod_packer, positional_arg, pack_mod_args);
 				game_path = ""; // Do not load anything.
 			}
 

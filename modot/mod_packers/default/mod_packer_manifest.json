@@ -1,0 +1,8 @@
+{
+  "id": "modot.default",
+  "name": "MoDot default",
+  "script": "pack_mod.gd",
+  "author": "Quipsol",
+  "version": "v1.0.0",
+  "description": "Packs res://<mod name>/ with its imported files, the .uid files of res://<mod name>Code/, and the project files they depend on, never the game's.\nArguments after \"--\" on the command line are extra folders to pack, e.g. addons/my_addon."
+}

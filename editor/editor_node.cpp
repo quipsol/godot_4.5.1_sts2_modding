@@ -98,6 +98,8 @@
 #include "editor/export/editor_export.h"
 #include "editor/export/export_template_manager.h"
 #include "editor/export/gdextension_export_plugin.h"
+#include "editor/export/mod_pack_dialog.h"
+#include "editor/export/mod_packers.h"
 #include "editor/export/project_export.h"
 #include "editor/export/project_zip_packer.h"
 #include "editor/export/register_exporters.h"
@@ -1248,6 +1250,23 @@ void EditorNode::_fs_changed() {
 	}
 
 	_mark_unsaved_scenes();
+
+	// --pack-mod: like the export below, after the first scan, so everything is imported.
+	if (!pack_mod_defer.packer.is_empty() && !EditorFileSystem::get_singleton()->is_scanning()) {
+		const String packer = pack_mod_defer.packer;
+		pack_mod_defer.packer = ""; // Notifications may come while packing.
+		String pack_error;
+		const String script = ModPackers::find_script(packer, pack_error);
+		const Error pack_err = script.is_empty() ? ERR_FILE_NOT_FOUND : ModPackers::pack(script, pack_mod_defer.path, pack_mod_defer.args, pack_error);
+		if (pack_err != OK) {
+			ERR_PRINT(pack_error);
+			_exit_editor(EXIT_FAILURE);
+			return;
+		}
+		print_line(vformat("Packed the mod into \"%s\".", pack_mod_defer.path));
+		_exit_editor(EXIT_SUCCESS);
+		return;
+	}
 
 	// FIXME: Move this to a cleaner location, it's hacky to do this in _fs_changed.
 	String export_error;
@@ -3248,6 +3267,10 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 
 		case PROJECT_EXPORT: {
 			project_export->popup_export();
+		} break;
+
+		case PROJECT_PACK_MOD: {
+			mod_pack_dialog->popup_pack();
 		} break;
 
 		case PROJECT_PACK_AS_ZIP: {
@@ -5795,6 +5818,14 @@ void EditorNode::_begin_first_scan() {
 	requested_first_scan = true;
 }
 
+Error EditorNode::pack_mod(const String &p_packer, const String &p_path, const Vector<String> &p_args) {
+	pack_mod_defer.packer = p_packer;
+	pack_mod_defer.path = p_path;
+	pack_mod_defer.args = p_args;
+	cmdline_mode = true;
+	return OK;
+}
+
 Error EditorNode::export_preset(const String &p_preset, const String &p_path, bool p_debug, bool p_pack_only, bool p_android_build_template, bool p_patch, const Vector<String> &p_patches) {
 	export_defer.preset = p_preset;
 	export_defer.path = p_path;
@@ -8171,6 +8202,9 @@ EditorNode::EditorNode() {
 	project_export = memnew(ProjectExportDialog);
 	gui_base->add_child(project_export);
 
+	mod_pack_dialog = memnew(ModPackDialog);
+	gui_base->add_child(mod_pack_dialog);
+
 	dependency_error = memnew(DependencyErrorDialog);
 	gui_base->add_child(dependency_error);
 
@@ -8294,6 +8328,7 @@ EditorNode::EditorNode() {
 
 	project_menu->add_separator();
 	project_menu->add_shortcut(ED_SHORTCUT_AND_COMMAND("editor/export", TTRC("Export..."), Key::NONE, TTRC("Export")), PROJECT_EXPORT);
+	project_menu->add_shortcut(ED_SHORTCUT("editor/pack_mod", TTRC("Pack Mod...")), PROJECT_PACK_MOD);
 	project_menu->add_item(TTRC("Pack Project as ZIP..."), PROJECT_PACK_AS_ZIP);
 #ifndef ANDROID_ENABLED
 	project_menu->add_item(TTRC("Install Android Build Template..."), PROJECT_INSTALL_ANDROID_SOURCE);

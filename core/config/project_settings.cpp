@@ -330,7 +330,8 @@ Error ProjectSettings::_save_machine_specific_settings() {
 		}
 	} else {
 		header = "; Machine-specific settings of this project, read on top of project.godot. Keep this file out of version control.\n"
-				 "; The editor saves editor/mounted_packs/paths, editor/mounted_assemblies/paths and editor/pre_patches/paths here.\n"
+				 "; The editor saves editor/mounted_packs/paths, editor/mounted_assemblies/paths, editor/pre_patches/paths and\n"
+				 "; editor/mod_packer/output_path here.\n"
 				 "; Paths: use / (or \\\\). A single \\ is an escape character in this file and gets lost.\n"
 				 "; Relative paths are relative to the project folder.\n\n";
 	}

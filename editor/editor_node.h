@@ -94,6 +94,7 @@ class EditorQuickOpenDialog;
 class FBXImporterManager;
 class FileSystemDock;
 class HistoryDock;
+class ModPackDialog;
 class OrphanResourcesDialog;
 class ProgressDialog;
 class ProjectExportDialog;
@@ -164,6 +165,7 @@ public:
 		PROJECT_FIND_IN_FILES,
 		PROJECT_VERSION_CONTROL,
 		PROJECT_EXPORT,
+		PROJECT_PACK_MOD,
 		PROJECT_PACK_AS_ZIP,
 		PROJECT_INSTALL_ANDROID_SOURCE,
 		PROJECT_OPEN_USER_DATA_FOLDER,
@@ -248,6 +250,13 @@ private:
 		Vector<String> patches;
 	} export_defer;
 
+	// --pack-mod, run like export_defer after the first scan (see ModPackers).
+	struct PackModDefer {
+		String packer;
+		String path;
+		Vector<String> args;
+	} pack_mod_defer;
+
 	static EditorNode *singleton;
 
 	EditorData editor_data;
@@ -269,6 +278,7 @@ private:
 	HistoryDock *history_dock = nullptr;
 
 	ProjectExportDialog *project_export = nullptr;
+	ModPackDialog *mod_pack_dialog = nullptr;
 	ProjectSettingsEditor *project_settings_editor = nullptr;
 
 	FBXImporterManager *fbx_importer_manager = nullptr;
@@ -948,6 +958,7 @@ public:
 	void _copy_warning(const String &p_str);
 
 	Error export_preset(const String &p_preset, const String &p_path, bool p_debug, bool p_pack_only, bool p_android_build_template, bool p_patch, const Vector<String> &p_patches);
+	Error pack_mod(const String &p_packer, const String &p_path, const Vector<String> &p_args); // --pack-mod.
 	bool is_project_exporting() const;
 
 	Control *get_gui_base() { return gui_base; }
