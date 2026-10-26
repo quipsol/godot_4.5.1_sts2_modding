@@ -160,7 +160,7 @@ TreeItem *MountedPacksDock::_create_item(TreeItem *p_parent, int p_entry, bool p
 
 	switch (entry.kind) {
 		case Entry::KIND_PACK: {
-			item->set_icon(0, get_editor_theme_icon(SNAME("PackedDataContainer")));
+			item->set_icon(0, get_editor_theme_icon(SNAME("MountedPack")));
 			item->set_tooltip_text(0, vformat(TTR("%s\nMounted read-only."), entry.path));
 		} break;
 		case Entry::KIND_FOLDER: {

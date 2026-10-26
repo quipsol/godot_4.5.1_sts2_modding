@@ -34,6 +34,7 @@
 #include "core/debugger/debugger_marshalls.h"
 #include "core/debugger/engine_debugger.h"
 #include "core/string/translation_server.h"
+#include "core/version.h"
 #include "editor/debugger/editor_debugger_node.h"
 #include "editor/debugger/script_editor_debugger.h"
 #include "editor/editor_interface.h"
@@ -1307,7 +1308,7 @@ void GameViewPluginBase::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_TRANSLATION_CHANGED: {
 #ifndef ANDROID_ENABLED
-			window_wrapper->set_window_title(vformat(TTR("%s - Godot Engine"), TTR("Game Workspace")));
+			window_wrapper->set_window_title(vformat("%s - %s", TTR("Game Workspace"), GODOT_VERSION_NAME));
 #endif
 		} break;
 		case NOTIFICATION_ENTER_TREE: {

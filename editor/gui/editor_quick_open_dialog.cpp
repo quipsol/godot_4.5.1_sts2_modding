@@ -1146,7 +1146,7 @@ void QuickOpenResultListItem::set_content(const QuickOpenResultCandidate &p_cand
 	path->set_text(p_candidate.file_path.get_base_dir());
 	mounted_icon->set_visible(!p_candidate.mounted_pack.is_empty());
 	if (mounted_icon->is_visible()) {
-		mounted_icon->set_texture(get_editor_theme_icon(SNAME("PackedDataContainer")));
+		mounted_icon->set_texture(get_editor_theme_icon(SNAME("MountedPack")));
 		mounted_icon->set_tooltip_text(vformat(TTR("From the read-only mounted pack \"%s\"."), p_candidate.mounted_pack));
 	}
 	name->reset_highlights();
@@ -1230,7 +1230,7 @@ void QuickOpenResultGridItem::set_content(const QuickOpenResultCandidate &p_cand
 	name->set_tooltip_text(p_candidate.mounted_pack.is_empty() ? p_candidate.file_path : vformat(TTR("%s\nFrom the read-only mounted pack \"%s\"."), p_candidate.file_path, p_candidate.mounted_pack));
 	mounted_icon->set_visible(!p_candidate.mounted_pack.is_empty());
 	if (mounted_icon->is_visible()) {
-		mounted_icon->set_texture(get_editor_theme_icon(SNAME("PackedDataContainer")));
+		mounted_icon->set_texture(get_editor_theme_icon(SNAME("MountedPack")));
 		mounted_icon->set_tooltip_text(vformat(TTR("From the read-only mounted pack \"%s\"."), p_candidate.mounted_pack));
 		mounted_icon->set_anchors_and_offsets_preset(Control::PRESET_TOP_RIGHT); // Size the corner to the icon.
 	}

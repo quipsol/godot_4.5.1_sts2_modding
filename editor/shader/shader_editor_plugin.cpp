@@ -30,6 +30,7 @@
 
 #include "shader_editor_plugin.h"
 
+#include "core/version.h"
 #include "editor/docks/filesystem_dock.h"
 #include "editor/docks/inspector_dock.h"
 #include "editor/editor_node.h"
@@ -847,7 +848,7 @@ void ShaderEditorPlugin::_notification(int p_what) {
 
 ShaderEditorPlugin::ShaderEditorPlugin() {
 	window_wrapper = memnew(WindowWrapper);
-	window_wrapper->set_window_title(vformat(TTR("%s - Godot Engine"), TTR("Shader Editor")));
+	window_wrapper->set_window_title(vformat("%s - %s", TTR("Shader Editor"), GODOT_VERSION_NAME));
 	window_wrapper->set_margins_enabled(true);
 
 	main_container = memnew(VBoxContainer);
