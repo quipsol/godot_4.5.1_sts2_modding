@@ -17,6 +17,11 @@ namespace GodotPlugins
         private readonly Dictionary<string, string> _mountedAssemblies = new();
         private readonly List<string> _mountedAssemblyDirectories = new();
 
+        // Load the plugin and the dependencies in its folder from their files instead of from memory. The files
+        // stay locked while the process runs, but the debugger can then match them to their project, which
+        // Edit and Continue (Rider's/Visual Studio's hot reload) needs.
+        private readonly bool _loadFromPath;
+
         public string? AssemblyLoadedPath { get; private set; }
 
         public PluginLoadContext(string pluginPath, ICollection<string> sharedAssemblies,
@@ -26,12 +31,14 @@ namespace GodotPlugins
         }
 
         public PluginLoadContext(string pluginPath, ICollection<string> sharedAssemblies,
-            AssemblyLoadContext mainLoadContext, bool isCollectible, IEnumerable<string> mountedAssemblyPaths)
+            AssemblyLoadContext mainLoadContext, bool isCollectible, IEnumerable<string> mountedAssemblyPaths,
+            bool loadFromPath = false)
             : base(isCollectible)
         {
             _resolver = new AssemblyDependencyResolver(pluginPath);
             _sharedAssemblies = sharedAssemblies;
             _mainLoadContext = mainLoadContext;
+            _loadFromPath = loadFromPath;
 
             foreach (string mountedAssemblyPath in mountedAssemblyPaths)
             {
@@ -83,7 +90,7 @@ namespace GodotPlugins
             if (assemblyPath != null)
             {
                 AssemblyLoadedPath = assemblyPath;
-                return LoadFromFileInMemory(assemblyPath);
+                return _loadFromPath ? LoadFromAssemblyPath(assemblyPath) : LoadFromFileInMemory(assemblyPath);
             }
 
             // Dependencies of mounted assemblies usually sit next to them (e.g. in the game's data folder).
