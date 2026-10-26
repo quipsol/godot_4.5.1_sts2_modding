@@ -1,78 +1,96 @@
-# Godot Engine
+###### This ReadMe is still work in progress
 
-<p align="center">
-  <a href="https://godotengine.org">
-    <img src="logo_outlined.svg" width="400" alt="Godot Engine logo">
-  </a>
-</p>
+# MoDot
 
-## 2D and 3D cross-platform game engine
+**MoDot is an unofficial fork of [Godot Engine](https://godotengine.org) 4.5.1 for making mods for
+*Slay the Spire 2*.** It lets you open a mod project in the editor with the game's own scenes, scripts and
+assets available read-only, run the game with your mod straight from the editor, and pack the finished mod.
 
-**[Godot Engine](https://godotengine.org) is a feature-packed, cross-platform
-game engine to create 2D and 3D games from a unified interface.** It provides a
-comprehensive set of [common tools](https://godotengine.org/features), so that
-users can focus on making games without having to reinvent the wheel. Games can
-be exported with one click to a number of platforms, including the major desktop
-platforms (Linux, macOS, Windows), mobile platforms (Android, iOS), as well as
-Web-based platforms and [consoles](https://docs.godotengine.org/en/latest/tutorials/platform/consoles.html).
+> [!IMPORTANT]
+> MoDot is not affiliated with, endorsed by, or supported by the Godot Foundation or the Godot Engine
+> project, nor by Mega Crit. Please **do not report MoDot issues to the Godot issue tracker**. Report them
+> here instead.
+>
+> MoDot does not contain any game files. You need your own copy of *Slay the Spire 2*; MoDot reads the
+> game's files from your installation.
 
-## Free, open source and community-driven
+## Features
 
-Godot is completely free and open source under the very permissive [MIT license](https://godotengine.org/license).
-No strings attached, no royalties, nothing. The users' games are theirs, down
-to the last line of engine code. Godot's development is fully independent and
-community-driven, empowering users to help shape their engine to match their
-expectations. It is supported by the [Godot Foundation](https://godot.foundation/)
-not-for-profit.
+<!-- TODO: link each feature to its documentation page once written. -->
 
-Before being open sourced in [February 2014](https://github.com/godotengine/godot/commit/0b806ee0fc9097fa7bda7ac0109191c9c5e0a1ac),
-Godot had been developed by [Juan Linietsky](https://github.com/reduz) and
-[Ariel Manzur](https://github.com/punto-) (both still maintaining the project)
-for several years as an in-house engine, used to publish several work-for-hire
-titles.
+- **Read-only game packs:** mount the game's `.pck` into `res://` (`editor/mounted_packs/paths`,
+  `--mount-pack`). Game scenes, resources and scripts can be opened, used and inherited, but not overwritten.
+- **Addons from packs:** enable editor plugins and GDExtensions that ship inside a mounted pack, such as
+  the game's Spine and FMOD integration (`editor/mounted_packs/addons`).
+- **Mounted assemblies:** load the game's C# assembly (`sts2.dll`) before your project's
+  (`editor/mounted_assemblies/paths`, `--mount-assembly`), so the game's C# scripts work in the editor and
+  your mod can reference them without copying them.
+- **Pre-patches:** run small Harmony patch assemblies before the game starts in the editor-player
+  (`editor/pre_patches/paths`, `editor/pre_patches/enabled`, `--pre-patch`). For example,
+  `MoDot.Native.SeparateProjectMods` makes each project load only its own mods folder.
+- **Mod packers:** pack a mod with **Project > Pack Mod...** or `--pack-mod <packer> <output.pck>`. The
+  default packer is `modot.default`; you can add your own in `mod_packers/` next to the executable.
+- **Machine-specific paths** go into `override.cfg`, so `project.godot` can be shared.
+- **IDE hot reload:** when the game runs, the project assembly is loaded from its file, so Rider's and
+  Visual Studio's hot reload (Edit and Continue) work while debugging.
+- Some basic project templates will be available soon. <!-- TODO: project templates -->
 
-![Screenshot of a 3D scene in the Godot Engine editor](https://raw.githubusercontent.com/godotengine/godot-design/master/screenshots/editor_tps_demo_1920x1080.jpg)
+## Download
 
-## Getting the engine
+| Platform | Status |
+|---|---|
+| Windows x86_64 | Prebuilt editor on the [Releases](https://github.com/quipsol/godot_4.5.1_sts2_modding/releases) page |
+| Linux, macOS | No prebuilt binaries yet, see [Building from source](#building-from-source) |
 
-### Binary downloads
+<!-- TODO: say which game version(s) the release was tested with, e.g. "Tested with Slay the Spire 2 v0.111.0". -->
 
-Official binaries for the Godot editor and the export templates can be found
-[on the Godot website](https://godotengine.org/download).
+## Getting started
 
-### Compiling from source
+TODO
+<!-- TODO: short walkthrough or link to the docs/wiki:
+     1. Download / build MoDot.
+     2. Create a mod project (template).
+     3. Point override.cfg at your game installation.
+     4. Open the editor, press Play.
+     5. Pack the mod. -->
 
-[See the official docs](https://docs.godotengine.org/en/latest/engine_details/development/compiling)
-for compilation instructions for every supported platform.
+## Building from source
 
-## Community and contributing
+MoDot builds like Godot with C# support. Follow Godot's
+[Compiling](https://docs.godotengine.org/en/4.5/contributing/development/compiling/index.html) guide for
+your platform, including the
+[C# (.NET) build steps](https://docs.godotengine.org/en/4.5/contributing/development/compiling/compiling_with_dotnet.html),
+using this repository and the `sts2-modding` branch.
 
-Godot is not only an engine but an ever-growing community of users and engine
-developers. The main community channels are listed [on the homepage](https://godotengine.org/community).
+Windows, for example:
 
-The best way to get in touch with the core engine developers is to join the
-[Godot Contributors Chat](https://chat.godotengine.org).
+```
+scons platform=windows target=editor arch=x86_64 module_mono_enabled=yes d3d12=yes
+python modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=windows
+```
 
-To get started contributing to the project, see the [contributing guide](CONTRIBUTING.md).
-This document also includes guidelines for reporting bugs.
+On Linux and macOS, use `platform=linuxbsd` or `platform=macos` and leave out `d3d12=yes`. These platforms
+are not tested yet.
 
-## Documentation and demos
+After building, copy `modot/mod_packers/` next to the executable (`bin/mod_packers/`).
+<!-- TODO: verify this step, and whether pre_patches/ also needs to be shipped/built. -->
 
-The official documentation is hosted on [Read the Docs](https://docs.godotengine.org).
-It is maintained by the Godot community in its own [GitHub repository](https://github.com/godotengine/godot-docs).
+## Relationship to Godot
 
-The [class reference](https://docs.godotengine.org/en/latest/classes/)
-is also accessible from the Godot editor.
+- MoDot is based on Godot **4.5.1-stable**. Changes are kept on the `sts2-modding` branch.
+  <!-- TODO: optional: list where the MoDot-specific code lives (main/pre_patches.cpp, modot/, GodotPlugins, ...). -->
+- Projects made with MoDot are regular Godot 4.5 projects plus a few MoDot-only project settings.
+  Stock Godot ignores those settings, so it can still open the project, without the game's files.
+- For general engine documentation, use the [Godot documentation](https://docs.godotengine.org/en/4.5/).
 
-We also maintain official demos in their own [GitHub repository](https://github.com/godotengine/godot-demo-projects)
-as well as a list of [awesome Godot community resources](https://github.com/godotengine/awesome-godot).
+## License
 
-There are also a number of other
-[learning resources](https://docs.godotengine.org/en/latest/community/tutorials.html)
-provided by the community, such as text and video tutorials, demos, etc.
-Consult the [community channels](https://godotengine.org/community)
-for more information.
+MoDot is distributed under the [MIT license](LICENSE.txt), like Godot Engine.
 
-[![Code Triagers Badge](https://www.codetriage.com/godotengine/godot/badges/users.svg)](https://www.codetriage.com/godotengine/godot)
-[![Translate on Weblate](https://hosted.weblate.org/widgets/godot-engine/-/godot/svg-badge.svg)](https://hosted.weblate.org/engage/godot-engine/?utm_source=widget)
-[![TODOs](https://badgen.net/https/api.tickgit.com/badgen/github.com/godotengine/godot)](https://www.tickgit.com/browse?repo=github.com/godotengine/godot)
+- Godot Engine is Copyright (c) 2014-present Godot Engine contributors, and Copyright (c) 2007-2014 Juan
+  Linietsky, Ariel Manzur. See [AUTHORS.md](AUTHORS.md).
+- Third-party components and their licenses are listed in [COPYRIGHT.txt](COPYRIGHT.txt).
+- MoDot's own changes are Copyright (c) <!-- TODO: year, name --> and also MIT-licensed.
+
+"Godot" and the Godot logo are trademarks of the Godot Foundation. MoDot uses the name only to describe
+what it is based on. *Slay the Spire 2* is a trademark of Mega Crit.
