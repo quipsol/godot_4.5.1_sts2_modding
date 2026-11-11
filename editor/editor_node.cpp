@@ -2349,6 +2349,14 @@ void EditorNode::save_before_run() {
 	file->set_title(TTR("Save scene before running..."));
 }
 
+// The read-only mounted pack a scene was opened from, or an empty string. Such scenes can be edited, but not saved back.
+static String _get_scene_read_only_pack(const String &p_scene_path) {
+	if (p_scene_path.is_empty() || !PackedData::get_singleton()) {
+		return String();
+	}
+	return PackedData::get_singleton()->get_pack_shadowed_by_writing(p_scene_path);
+}
+
 void EditorNode::try_autosave() {
 	if (!bool(EDITOR_GET("run/auto_save/save_before_running"))) {
 		return;
@@ -2357,7 +2365,9 @@ void EditorNode::try_autosave() {
 	if (unsaved_cache) {
 		Node *scene = editor_data.get_edited_scene_root();
 
-		if (scene && !scene->get_scene_file_path().is_empty()) { // Only autosave if there is a scene and if it has a path.
+		// Only autosave if there is a scene and if it has a path.
+		// A scene from a read-only mounted pack is skipped; _save_all_scenes() below says so in the Output.
+		if (scene && !scene->get_scene_file_path().is_empty() && _get_scene_read_only_pack(scene->get_scene_file_path()).is_empty()) {
 			_save_scene_with_preview(scene->get_scene_file_path());
 		}
 	}
@@ -2380,6 +2390,16 @@ void EditorNode::_save_all_scenes() {
 		ERR_FAIL_NULL(scene);
 
 		const String &scene_path = scene->get_scene_file_path();
+
+		// Scenes from read-only mounted packs are often only open for reference. They can't be saved back, and
+		// asking for a new location (their folder only exists in the pack) interrupted every run of the project.
+		// They stay marked as unsaved: Save Scene As, or closing the tab, still offers to keep the changes.
+		const String read_only_pack = _get_scene_read_only_pack(scene_path);
+		if (!read_only_pack.is_empty()) {
+			print_line(vformat("Not saved: %s comes from the read-only mounted pack \"%s\". Running the project uses the pack's version; to keep the changes, use Save Scene As.", scene_path, read_only_pack.get_file()));
+			continue;
+		}
+
 		if (scene_path.is_empty() || !DirAccess::exists(scene_path.get_base_dir())) {
 			scenes_to_save_as.push_back(i);
 			continue;

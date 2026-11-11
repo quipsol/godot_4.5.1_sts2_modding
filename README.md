@@ -11,8 +11,17 @@ assets available read-only, run the game with your mod straight from the editor,
 > project, nor by Mega Crit. Please **do not report MoDot issues to the Godot issue tracker**. Report them
 > here instead.
 >
-> MoDot does not contain any game files. You need your own copy of *Slay the Spire 2*; MoDot reads the
+> MoDot does not contain any game files. You need your own copy of *Slay the Spire 2*. MoDot reads the
 > game's files from your installation.
+
+## Table of Content
+
+- [Features](#features)
+- [Download](#download)
+- [Getting started](#getting-started)
+- [Building from Source](#building-from-source)
+- [Relationship to Godot](#relationship-to-godot)
+- [License](#license)
 
 ## Features
 
@@ -42,17 +51,19 @@ assets available read-only, run the game with your mod straight from the editor,
 | Windows x86_64 | Prebuilt editor on the [Releases](https://github.com/quipsol/godot_4.5.1_sts2_modding/releases) page |
 | Linux, macOS | No prebuilt binaries yet, see [Building from source](#building-from-source) |
 
-<!-- TODO: say which game version(s) the release was tested with, e.g. "Tested with Slay the Spire 2 v0.111.0". -->
-
 ## Getting started
 
 TODO
+<!-- TODO: Finish templates and make them public. -->
+<!-- TODO: Move these steps into documentation once written and link to it. -->
 <!-- TODO: short walkthrough or link to the docs/wiki:
      1. Download / build MoDot.
      2. Create a mod project (template).
      3. Point override.cfg at your game installation.
      4. Open the editor, press Play.
      5. Pack the mod. -->
+
+
 
 ## Building from source
 
@@ -69,28 +80,27 @@ scons platform=windows target=editor arch=x86_64 module_mono_enabled=yes d3d12=y
 python modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=windows
 ```
 
-On Linux and macOS, use `platform=linuxbsd` or `platform=macos` and leave out `d3d12=yes`. These platforms
-are not tested yet.
+On Linux and macOS, use `platform=linuxbsd` or `platform=macos` and leave out `d3d12=yes`. *These platforms
+are not tested yet.*
 
 After building, copy `modot/mod_packers/` next to the executable (`bin/mod_packers/`).
-<!-- TODO: verify this step, and whether pre_patches/ also needs to be shipped/built. -->
 
 ## Relationship to Godot
 
 - MoDot is based on Godot **4.5.1-stable**. Changes are kept on the `sts2-modding` branch.
   <!-- TODO: optional: list where the MoDot-specific code lives (main/pre_patches.cpp, modot/, GodotPlugins, ...). -->
 - Projects made with MoDot are regular Godot 4.5 projects plus a few MoDot-only project settings.
-  Stock Godot ignores those settings, so it can still open the project, without the game's files.
+  Stock Godot ignores those settings, so it can still open the project, without the game's files. Though any outside references are lost.
 - For general engine documentation, use the [Godot documentation](https://docs.godotengine.org/en/4.5/).
 
 ## License
 
-MoDot is distributed under the [MIT license](LICENSE.txt), like Godot Engine.
+MoDot is distributed under the [MIT license](LICENSE.txt), like the Godot Engine.
 
 - Godot Engine is Copyright (c) 2014-present Godot Engine contributors, and Copyright (c) 2007-2014 Juan
   Linietsky, Ariel Manzur. See [AUTHORS.md](AUTHORS.md).
 - Third-party components and their licenses are listed in [COPYRIGHT.txt](COPYRIGHT.txt).
-- MoDot's own changes are Copyright (c) <!-- TODO: year, name --> and also MIT-licensed.
+- MoDot's own changes are Copyright (c) 2026-present Quipsol and also MIT-licensed.
 
 "Godot" and the Godot logo are trademarks of the Godot Foundation. MoDot uses the name only to describe
 what it is based on. *Slay the Spire 2* is a trademark of Mega Crit.

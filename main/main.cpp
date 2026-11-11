@@ -681,7 +681,7 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--main-pack <file>", "Path to a pack (.pck) file to load.\n");
 	print_help_option("--mount-pack <file>", "Mount a pack (.pck) read-only on top of the project, in the editor and in the project run from it. Can be repeated; mounted before the packs in editor/mounted_packs/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--mount-assembly <file>", "Load a .NET assembly (.dll) before the project assembly, in the editor and in the project run from it. Can be repeated; loaded before the assemblies in editor/mounted_assemblies/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
-	print_help_option("--pre-patch <file>", "Load a .NET assembly (.dll) and run its module initializer before the project run from the editor starts. Can be repeated; runs before the assemblies in editor/pre_patches/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--pre-patch <file>", "Load a .NET assembly (.dll) and run its module initializer before the project run from the editor starts. Can be repeated; runs after the pre-patches enabled in Project Settings and the assemblies in editor/pre_patches/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifdef DISABLE_DEPRECATED
 	print_help_option("--render-thread <mode>", "Render thread mode (\"safe\", \"separate\").\n");
 #else
