@@ -661,6 +661,11 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("filesystem/quick_open_dialog/include_mounted_packs", true); // Files from read-only mounted packs (editor/mounted_packs/paths, --mount-pack).
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_ENUM, "filesystem/quick_open_dialog/default_display_mode", 0, "Adaptive,Last Used")
 
+	// Read-only mounted packs
+	// Opening a scene from a mounted pack first offers New Inherited / Open Anyway; false opens it directly (the dialog's
+	// "Don't ask again" sets this). New Inherited stays available in the Mounted Packs dock's context menu.
+	_initial_set("filesystem/mounted_packs/ask_before_opening_scenes", true);
+
 	// Import (for glft module)
 	EDITOR_SETTING_USAGE(Variant::STRING, PROPERTY_HINT_GLOBAL_FILE, "filesystem/import/blender/blender_path", "", "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_RESTART_IF_CHANGED | PROPERTY_USAGE_EDITOR_BASIC_SETTING)
 	EDITOR_SETTING_USAGE(Variant::INT, PROPERTY_HINT_RANGE, "filesystem/import/blender/rpc_port", 6011, "0,65535,1", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_RESTART_IF_CHANGED)

@@ -41,6 +41,7 @@ typedef void (*EditorPluginInitializeCallback)();
 typedef bool (*EditorBuildCallback)();
 
 class AcceptDialog;
+class CheckBox;
 class ColorPicker;
 class ConfirmationDialog;
 class Control;
@@ -436,6 +437,10 @@ private:
 	DependencyEditor *dependency_fixer = nullptr;
 	OrphanResourcesDialog *orphan_resources = nullptr;
 	ConfirmationDialog *open_imported = nullptr;
+	Label *open_imported_label = nullptr;
+	// Only shown for scenes from read-only mounted packs: ticked, they open directly from then on (editor setting
+	// filesystem/mounted_packs/ask_before_opening_scenes).
+	CheckBox *open_imported_dont_ask = nullptr;
 	Button *new_inherited_button = nullptr;
 	String open_import_request;
 
@@ -698,6 +703,7 @@ private:
 
 	void _inherit_imported(const String &p_action);
 	void _open_imported();
+	void _open_imported_dont_ask_toggled(bool p_pressed);
 
 	void _update_update_spinner();
 

@@ -52,6 +52,8 @@
 #include "scene/2d/node_2d.h"
 #include "scene/3d/bone_attachment_3d.h"
 #include "scene/animation/animation_tree.h"
+#include "scene/gui/box_container.h"
+#include "scene/gui/check_box.h"
 #include "scene/gui/color_picker.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/file_dialog.h"
@@ -4549,7 +4551,10 @@ Error EditorNode::load_scene(const String &p_scene, bool p_ignore_broken_deps, b
 		}
 
 		if (!p_force_open_imported && FileAccess::exists(lpath + ".import")) {
-			open_imported->set_text(vformat(TTR("Scene '%s' was automatically imported, so it can't be modified.\nTo make changes to it, a new inherited scene can be created."), lpath.get_file()));
+			open_imported_label->set_text(vformat(TTR("Scene '%s' was automatically imported, so it can't be modified.\nTo make changes to it, a new inherited scene can be created."), lpath.get_file()));
+			open_imported_dont_ask->hide();
+			_open_imported_dont_ask_toggled(false);
+			open_imported->reset_size();
 			open_imported->popup_centered();
 			new_inherited_button->grab_focus();
 			open_import_request = lpath;
@@ -4557,10 +4562,14 @@ Error EditorNode::load_scene(const String &p_scene, bool p_ignore_broken_deps, b
 		}
 
 		// Scenes from read-only mounted packs can't be saved back either; offer the same choice (but not when
-		// restoring the scenes that were open last time).
+		// restoring the scenes that were open last time, or when the developer chose not to be asked again).
 		const String pack = PackedData::get_singleton() ? PackedData::get_singleton()->get_pack_shadowed_by_writing(lpath) : String();
-		if (!p_force_open_imported && !restoring_scenes && !pack.is_empty()) {
-			open_imported->set_text(vformat(TTR("Scene '%s' comes from the read-only mounted pack \"%s\", so changes to it can't be saved there.\nTo make changes to it, a new inherited scene can be created (and saved in the project)."), lpath.get_file(), pack.get_file()));
+		if (!p_force_open_imported && !restoring_scenes && !pack.is_empty() && bool(EDITOR_GET("filesystem/mounted_packs/ask_before_opening_scenes"))) {
+			open_imported_label->set_text(vformat(TTR("Scene '%s' comes from the read-only mounted pack \"%s\", so changes to it can't be saved there.\nTo make changes to it, a new inherited scene can be created (and saved in the project)."), lpath.get_file(), pack.get_file()));
+			open_imported_dont_ask->set_pressed_no_signal(false);
+			open_imported_dont_ask->show();
+			_open_imported_dont_ask_toggled(false);
+			open_imported->reset_size();
 			open_imported->popup_centered();
 			new_inherited_button->grab_focus();
 			open_import_request = lpath;
@@ -7283,7 +7292,16 @@ void EditorNode::_inherit_imported(const String &p_action) {
 }
 
 void EditorNode::_open_imported() {
+	if (open_imported_dont_ask->is_visible() && open_imported_dont_ask->is_pressed()) {
+		EditorSettings::get_singleton()->set("filesystem/mounted_packs/ask_before_opening_scenes", false);
+		print_line(TTR("Scenes from mounted packs now open directly. To be asked again, enable Editor Settings > FileSystem > Mounted Packs > Ask Before Opening Scenes."));
+	}
 	load_scene(open_import_request, true, false, true);
+}
+
+void EditorNode::_open_imported_dont_ask_toggled(bool p_pressed) {
+	// Ticked means "always open", so New Inherited would contradict it (it stays in the Mounted Packs dock's menu).
+	new_inherited_button->set_disabled(p_pressed);
 }
 
 void EditorNode::dim_editor(bool p_dimming) {
@@ -8949,6 +8967,15 @@ EditorNode::EditorNode() {
 
 	open_imported = memnew(ConfirmationDialog);
 	open_imported->set_ok_button_text(TTR("Open Anyway"));
+	VBoxContainer *open_imported_vbox = memnew(VBoxContainer);
+	open_imported->add_child(open_imported_vbox);
+	open_imported_label = memnew(Label);
+	open_imported_vbox->add_child(open_imported_label);
+	open_imported_dont_ask = memnew(CheckBox);
+	open_imported_dont_ask->set_text(TTR("Don't ask again, always open scenes from mounted packs"));
+	open_imported_dont_ask->set_tooltip_text(TTR("Can be undone in Editor Settings > FileSystem > Mounted Packs > Ask Before Opening Scenes.\nNew Inherited Scene stays available in the Mounted Packs dock's context menu."));
+	open_imported_dont_ask->connect(SceneStringName(toggled), callable_mp(this, &EditorNode::_open_imported_dont_ask_toggled));
+	open_imported_vbox->add_child(open_imported_dont_ask);
 	new_inherited_button = open_imported->add_button(TTR("New Inherited"), !DisplayServer::get_singleton()->get_swap_cancel_ok(), "inherit");
 	open_imported->connect(SceneStringName(confirmed), callable_mp(this, &EditorNode::_open_imported));
 	open_imported->connect("custom_action", callable_mp(this, &EditorNode::_inherit_imported));
