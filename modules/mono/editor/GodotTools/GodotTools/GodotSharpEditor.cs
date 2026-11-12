@@ -46,6 +46,8 @@ namespace GodotTools
 
         private Button _bottomPanelBtn;
         private Button _toolBarBuildButton;
+        // MoDot: publishing the mod (Debug, ExportRelease) and the publish-before-running option.
+        private MenuButton _toolBarPublishMenuButton;
 
         // TODO Use WeakReference once we have proper serialization.
         private WeakRef _exportPluginWeak;
@@ -120,6 +122,7 @@ namespace GodotTools
         {
             _bottomPanelBtn.Show();
             _toolBarBuildButton.Show();
+            _toolBarPublishMenuButton.Show();
         }
 
         private void _MenuOptionPressed(long id)
@@ -157,6 +160,58 @@ namespace GodotTools
         private enum MenuOptions
         {
             CreateSln,
+        }
+
+        private enum PublishMenuOptions
+        {
+            PublishDebug,
+            PublishRelease,
+            PublishDebugBeforeRunning,
+        }
+
+        // MoDot: `dotnet publish` of the project, as an IDE's "Publish to folder" does it. Debug is what the project run
+        // from the editor loads; Release (ExportRelease) is for players.
+        private void PublishProjectPressed(bool release)
+        {
+            if (!File.Exists(GodotSharpDirs.ProjectCsProjPath))
+                return;
+
+            // The project's publish packs the mod from the files on disk.
+            EditorInterface.Singleton.SaveAllScenes();
+
+            if (release)
+            {
+                ModPublish.PublishReleaseBlocking();
+            }
+            else if (ModPublish.PublishDebugBlocking())
+            {
+                GodotTools.Build.MSBuildPanel.OnDebugAssemblyBuilt();
+            }
+        }
+
+        private void PublishMenuAboutToPopup()
+        {
+            var popup = _toolBarPublishMenuButton.GetPopup();
+            popup.SetItemChecked(popup.GetItemIndex((int)PublishMenuOptions.PublishDebugBeforeRunning),
+                ModPublish.IsPublishDebugBeforeRunningEnabled);
+        }
+
+        private void PublishMenuIdPressed(long id)
+        {
+            switch ((PublishMenuOptions)id)
+            {
+                case PublishMenuOptions.PublishDebug:
+                    PublishProjectPressed(release: false);
+                    break;
+                case PublishMenuOptions.PublishRelease:
+                    PublishProjectPressed(release: true);
+                    break;
+                case PublishMenuOptions.PublishDebugBeforeRunning:
+                    ModPublish.IsPublishDebugBeforeRunningEnabled = !ModPublish.IsPublishDebugBeforeRunningEnabled;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(id), id, "Invalid publish menu option");
+            }
         }
 
         public void ShowErrorDialog(string message, string title = "Error")
@@ -540,6 +595,32 @@ namespace GodotTools
             // Move Build button so it appears to the left of the Play button.
             _toolBarBuildButton.GetParent().MoveChild(_toolBarBuildButton, 0);
 
+            // MoDot: Publish menu, right of the Build button.
+            _toolBarPublishMenuButton = new MenuButton
+            {
+                Flat = false,
+                Icon = EditorInterface.Singleton.GetEditorTheme().GetIcon("PublishMod", "EditorIcons"),
+                FocusMode = Control.FocusModeEnum.None,
+                TooltipText = "Publish the mod (`dotnet publish`, like an IDE's \"Publish to folder\")".TTR(),
+                ThemeTypeVariation = "RunBarButton",
+            };
+            var publishPopup = _toolBarPublishMenuButton.GetPopup();
+            publishPopup.AddItem("Publish (Debug)".TTR(), (int)PublishMenuOptions.PublishDebug);
+            publishPopup.SetItemTooltip(publishPopup.GetItemIndex((int)PublishMenuOptions.PublishDebug),
+                "For the project run from the editor (`dotnet publish -c Debug`).".TTR());
+            publishPopup.AddItem("Publish (ExportRelease)".TTR(), (int)PublishMenuOptions.PublishRelease);
+            publishPopup.SetItemTooltip(publishPopup.GetItemIndex((int)PublishMenuOptions.PublishRelease),
+                "For players, e.g. into the game's mods folder (`dotnet publish -c ExportRelease`).".TTR());
+            publishPopup.AddSeparator();
+            publishPopup.AddCheckItem("Publish (Debug) Before Running When Files Changed".TTR(),
+                (int)PublishMenuOptions.PublishDebugBeforeRunning);
+            publishPopup.SetItemTooltip(publishPopup.GetItemIndex((int)PublishMenuOptions.PublishDebugBeforeRunning),
+                "Running the project publishes the mod (Debug) first if a project file changed since the last Debug publish, instead of only building it.\nEditor setting: dotnet/build/publish_debug_before_running.".TTR());
+            publishPopup.AboutToPopup += PublishMenuAboutToPopup;
+            publishPopup.IdPressed += PublishMenuIdPressed;
+            Internal.EditorPlugin_AddControlToEditorRunBar(_toolBarPublishMenuButton);
+            _toolBarPublishMenuButton.GetParent().MoveChild(_toolBarPublishMenuButton, 1);
+
             if (File.Exists(GodotSharpDirs.ProjectCsProjPath))
             {
                 ApplyNecessaryChangesToSolution();
@@ -548,6 +629,7 @@ namespace GodotTools
             {
                 _bottomPanelBtn.Hide();
                 _toolBarBuildButton.Hide();
+                _toolBarPublishMenuButton.Hide();
             }
             _menuPopup.AddItem("Create C# solution".TTR(), (int)MenuOptions.CreateSln);
 
@@ -561,6 +643,7 @@ namespace GodotTools
             EditorDef(Settings.NoConsoleLogging, false);
             EditorDef(Settings.CreateBinaryLog, false);
             EditorDef(Settings.ProblemsLayout, Variant.From(BuildProblemsView.ProblemsLayout.Tree));
+            EditorDef(ModPublish.PublishDebugBeforeRunningSetting, false);
 
             string settingsHintStr = "Disabled";
 

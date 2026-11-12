@@ -80,6 +80,15 @@ namespace GodotTools.Build
             if (!BuildManager.BuildProjectBlocking("Debug"))
                 return; // Build failed.
 
+            OnDebugAssemblyBuilt();
+        }
+
+        /// <summary>
+        /// After the project's Debug assembly was built (by a build, or by MoDot's Debug publish, which includes one):
+        /// reloads it in the running project and in the editor.
+        /// </summary>
+        public static void OnDebugAssemblyBuilt()
+        {
             // Notify running game for hot-reload.
             Internal.EditorDebuggerNodeReloadScripts();
 

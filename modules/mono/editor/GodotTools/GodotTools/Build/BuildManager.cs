@@ -333,6 +333,26 @@ namespace GodotTools.Build
         ) => PublishProjectBlocking(CreatePublishBuildInfo(configuration,
             platform, runtimeIdentifier, publishOutputDir, includeDebugSymbols));
 
+        /// <summary>
+        /// MoDot: `dotnet publish -c <paramref name="configuration"/>` of the project, portable (no runtime identifier,
+        /// not self-contained, default output folder), as an IDE's "Publish to folder" runs it. All of the project's
+        /// targets run, e.g. those that copy and pack the mod.
+        /// </summary>
+        public static bool PublishProjectPortableBlocking(string configuration)
+        {
+            if (!File.Exists(GodotSharpDirs.ProjectCsProjPath))
+                return true; // No project to publish.
+
+            bool success = PublishProjectBlocking(CreateBuildInfo(configuration));
+
+            if (!success)
+            {
+                ShowBuildErrorDialog($"Failed to publish project ({configuration}). Check MSBuild panel for details.");
+            }
+
+            return success;
+        }
+
         public static bool GenerateXCFrameworkBlocking(
             List<string> outputPaths,
             string xcFrameworkPath)
@@ -379,6 +399,10 @@ namespace GodotTools.Build
 
             if (GodotSharpEditor.Instance.SkipBuildBeforePlaying)
                 return true; // Requested play from an external editor/IDE which already built the project.
+
+            // MoDot: the project runs with the mod as published (Debug). A publish includes the build.
+            if (ModPublish.ShouldPublishBeforeRunning())
+                return ModPublish.PublishDebugBlocking();
 
             return BuildProjectBlocking("Debug");
         }

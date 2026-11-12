@@ -110,6 +110,8 @@ namespace GodotTools.Build
             startInfo.RedirectStandardOutput = true;
             startInfo.RedirectStandardError = true;
             startInfo.UseShellExecute = false;
+            // MoDot: as for builds; without it, Windows shows an empty console window while publishing.
+            startInfo.CreateNoWindow = true;
             startInfo.EnvironmentVariables["DOTNET_CLI_UI_LANGUAGE"]
                 = ((string)editorSettings.GetSetting("interface/editor/editor_language")).Replace('_', '-');
 
@@ -211,13 +213,16 @@ namespace GodotTools.Build
             arguments.Add("-c");
             arguments.Add(buildInfo.Configuration);
 
-            // Runtime Identifier
-            arguments.Add("-r");
-            arguments.Add(buildInfo.RuntimeIdentifier!);
+            // Runtime Identifier and self-published, for exports. Without a runtime identifier (MoDot's mod publish), it is
+            // a portable publish, as an IDE's "Publish to folder" does it.
+            if (buildInfo.RuntimeIdentifier != null)
+            {
+                arguments.Add("-r");
+                arguments.Add(buildInfo.RuntimeIdentifier);
 
-            // Self-published
-            arguments.Add("--self-contained");
-            arguments.Add("true");
+                arguments.Add("--self-contained");
+                arguments.Add("true");
+            }
 
             // Verbosity
             AddVerbosityArguments(buildInfo, arguments, editorSettings);
