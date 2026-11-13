@@ -2768,7 +2768,7 @@ bool ScriptEditor::edit(const Ref<Resource> &p_resource, int p_line, int p_col, 
 			notice->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 			notice->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("warning_color"), EditorStringName(Editor)));
 			if (substituted_source) {
-				notice->set_text(vformat(TTR("Read-only: decompiled code of this script, from the project's mounted assemblies (the mounted pack \"%s\" only holds a placeholder). Patch it from your mod's code, e.g. with Harmony."), read_only_pack.get_file()));
+				notice->set_text(vformat(TTR("Read-only: decompiled code of this script, from the project's mounted assemblies (the mounted pack \"%s\" only holds a placeholder)."), read_only_pack.get_file()));
 			} else if (scr->get_source_code().strip_edges().is_empty()) {
 				notice->set_text(vformat(TTR("Read-only: this script comes from the mounted pack \"%s\", which doesn't contain its source code (e.g. only a compiled version)."), read_only_pack.get_file()));
 			} else {
