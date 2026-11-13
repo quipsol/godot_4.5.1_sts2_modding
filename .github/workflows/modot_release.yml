@@ -74,6 +74,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      # The runners also have newer SDKs (e.g. 11.0), with which Godot's C# projects fail to restore. Godot's
+      # modules/mono/global.json allows any newer major version; on the runner only (not committed), it's limited to 8.0.
+      - name: Use the .NET 8 SDK
+        shell: bash
+        run: |
+          echo '{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
+          cd modules/mono && dotnet --version
+
       - name: Download Direct3D 12 SDK components
         run: python ./misc/scripts/install_d3d12_sdk_windows.py
 
@@ -128,6 +136,8 @@ jobs:
           name: modot-windows
           path: dist/MoDot_${{ env.VERSION }}_windows_x86_64.zip
           compression-level: 0
+          # Test runs' packages; a release's zips are attached to the release.
+          retention-days: 7
 
   linux:
     name: Linux
@@ -159,6 +169,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+
+      # The runners also have newer SDKs (e.g. 11.0), with which Godot's C# projects fail to restore. Godot's
+      # modules/mono/global.json allows any newer major version; on the runner only (not committed), it's limited to 8.0.
+      - name: Use the .NET 8 SDK
+        shell: bash
+        run: |
+          echo '{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
+          cd modules/mono && dotnet --version
 
       - name: Download pre-built AccessKit
         uses: dsaltares/fetch-gh-release-asset@1.1.2
@@ -201,17 +219,20 @@ jobs:
           name: modot-linux
           path: dist/MoDot_${{ env.VERSION }}_linux_x86_64.zip
           compression-level: 0
+          # Test runs' packages; a release's zips are attached to the release.
+          retention-days: 7
 
   macos:
     name: macOS (universal)
-    runs-on: macos-latest
+    # Pinned (macos-latest moves to new images): macOS 15 with its default Xcode 16, which Godot 4.5 builds with.
+    runs-on: macos-15
     timeout-minutes: 300
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - name: Show Xcode version
+        run: xcodebuild -version
 
       - name: Restore build cache
         uses: ./.github/actions/godot-cache-restore
@@ -226,6 +247,14 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+
+      # The runners also have newer SDKs (e.g. 11.0), with which Godot's C# projects fail to restore. Godot's
+      # modules/mono/global.json allows any newer major version; on the runner only (not committed), it's limited to 8.0.
+      - name: Use the .NET 8 SDK
+        shell: bash
+        run: |
+          echo '{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
+          cd modules/mono && dotnet --version
 
       - name: Download pre-built AccessKit
         uses: dsaltares/fetch-gh-release-asset@1.1.2
@@ -282,6 +311,8 @@ jobs:
           name: modot-macos
           path: dist/MoDot_${{ env.VERSION }}_macos.zip
           compression-level: 0
+          # Test runs' packages; a release's zips are attached to the release.
+          retention-days: 7
 
   release:
     name: Draft release
