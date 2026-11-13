@@ -59,10 +59,26 @@ assets available read-only, run the game with your mod straight from the editor,
 
 ## Download
 
-| Platform | Status |
-|---|---|
-| Windows x86_64 | Prebuilt editor on the [Releases](https://github.com/quipsol/godot_4.5.1_sts2_modding/releases) page |
-| Linux, macOS | No prebuilt binaries yet, see [Building from source](#building-from-source) |
+Prebuilt editors are on the [Releases](https://github.com/quipsol/godot_4.5.1_sts2_modding/releases) page.
+Download the zip for your platform and extract it anywhere.
+
+| Platform | File | Status |
+|---|---|---|
+| Windows x86_64 | `MoDot_<version>_windows_x86_64.zip` | Tested |
+| Linux x86_64 | `MoDot_<version>_linux_x86_64.zip` | Built automatically, not tested yet |
+| macOS (Apple Silicon and Intel) | `MoDot_<version>_macos.zip` | Built automatically, not tested yet |
+
+MoDot keeps its editor settings next to the executable (self-contained mode), so it doesn't share settings
+with a regular Godot installation.
+
+On macOS, MoDot isn't signed by an Apple developer account. After extracting, remove the download quarantine
+once, in a terminal in the extracted folder:
+
+```
+xattr -dr com.apple.quarantine "MoDot.app"
+```
+
+Pre-patches are a separate download on the same Releases page.
 
 ## Getting started
 
