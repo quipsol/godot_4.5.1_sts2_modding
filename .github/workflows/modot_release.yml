@@ -74,14 +74,15 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
-      # The runners also have newer SDKs (e.g. 11.0), with which Godot's C# projects fail to restore. Godot's
-      # modules/mono/global.json allows any newer major version; on the runner only (not committed), it's limited to 8.0.
-      - name: Use the .NET 8 SDK
+      # .NET 10, as used locally (GodotPlugins targets net9.0, so .NET 8 can't build it). The runners also have newer
+      # SDKs (e.g. 11.0), with which Godot's C# projects fail to restore; Godot's modules/mono/global.json allows any
+      # newer major version, so on the runner only (not committed) it's limited to 10.0.
+      - name: Use the .NET 10 SDK
         shell: bash
         run: |
-          echo '{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
+          echo '{ "sdk": { "version": "10.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
           cd modules/mono && dotnet --version
 
       - name: Download Direct3D 12 SDK components
@@ -170,14 +171,15 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
-      # The runners also have newer SDKs (e.g. 11.0), with which Godot's C# projects fail to restore. Godot's
-      # modules/mono/global.json allows any newer major version; on the runner only (not committed), it's limited to 8.0.
-      - name: Use the .NET 8 SDK
+      # .NET 10, as used locally (GodotPlugins targets net9.0, so .NET 8 can't build it). The runners also have newer
+      # SDKs (e.g. 11.0), with which Godot's C# projects fail to restore; Godot's modules/mono/global.json allows any
+      # newer major version, so on the runner only (not committed) it's limited to 10.0.
+      - name: Use the .NET 10 SDK
         shell: bash
         run: |
-          echo '{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
+          echo '{ "sdk": { "version": "10.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
           cd modules/mono && dotnet --version
 
       - name: Download pre-built AccessKit
@@ -248,14 +250,15 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
-      # The runners also have newer SDKs (e.g. 11.0), with which Godot's C# projects fail to restore. Godot's
-      # modules/mono/global.json allows any newer major version; on the runner only (not committed), it's limited to 8.0.
-      - name: Use the .NET 8 SDK
+      # .NET 10, as used locally (GodotPlugins targets net9.0, so .NET 8 can't build it). The runners also have newer
+      # SDKs (e.g. 11.0), with which Godot's C# projects fail to restore; Godot's modules/mono/global.json allows any
+      # newer major version, so on the runner only (not committed) it's limited to 10.0.
+      - name: Use the .NET 10 SDK
         shell: bash
         run: |
-          echo '{ "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
+          echo '{ "sdk": { "version": "10.0.100", "rollForward": "latestFeature" } }' > modules/mono/global.json
           cd modules/mono && dotnet --version
 
       - name: Download pre-built AccessKit
