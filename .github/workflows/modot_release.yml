@@ -1,0 +1,330 @@
+name: MoDot release
+
+# Builds the MoDot editor (with C#) for Windows, Linux and macOS, packages each one in the release layout
+# (modot/ci/package_release.py) and creates a draft GitHub release with the three zips.
+#
+# Started manually: Actions > MoDot release > Run workflow, with the version and the tag to create. The release is a
+# draft: add the notes and the pre-patches zip, then publish it.
+#
+# While the workflow itself is being developed on the develop branch (the "Run workflow" button only exists once the
+# file is on the default branch), a push to develop that changes it builds and packages only, without a release; the
+# zips can be downloaded from the run's page.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: MoDot version (e.g. 4.5.1-m.2)
+        required: true
+        type: string
+      tag:
+        description: Tag to create for the release (e.g. m2)
+        required: true
+        type: string
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/modot_release.yml
+      - modot/ci/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}|${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  # A test build from a push is named after its commit.
+  VERSION: ${{ inputs.version || format('develop-{0}', github.sha) }}
+  # production=yes without link-time optimization, which would make the CI builds much slower.
+  SCONS_FLAGS: >-
+    target=editor
+    module_mono_enabled=yes
+    production=yes
+    lto=none
+    debug_symbols=no
+    "accesskit_sdk_path=${{ github.workspace }}/accesskit-c-0.17.0/"
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PYTHONIOENCODING: utf8
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      SCONS_CACHE_MSVC_CONFIG: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: modot-windows-editor
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download Direct3D 12 SDK components
+        run: python ./misc/scripts/install_d3d12_sdk_windows.py
+
+      - name: Download pre-built ANGLE static libraries
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot-angle-static
+          version: tags/chromium/6601.2
+          file: godot-angle-static-x86_64-msvc-release.zip
+          target: angle/angle.zip
+
+      - name: Extract pre-built ANGLE static libraries
+        run: Expand-Archive -Force angle/angle.zip ${{ github.workspace }}/
+
+      - name: Download pre-built AccessKit
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: AccessKit/accesskit-c
+          version: tags/0.17.0
+          file: accesskit-c-0.17.0.zip
+          target: accesskit-c-0.17.0/accesskit_c.zip
+
+      - name: Extract pre-built AccessKit
+        run: unzip -o accesskit-c-0.17.0/accesskit_c.zip
+
+      - name: Compilation
+        run: scons platform=windows ${{ env.SCONS_FLAGS }} d3d12=yes "angle_libs=${{ github.workspace }}/" "cache_path=${{ github.workspace }}/.scons_cache/" redirect_build_objects=no
+
+      - name: Save build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: modot-windows-editor
+        continue-on-error: true
+
+      - name: Generate C# glue
+        run: ./bin/godot.windows.editor.x86_64.mono.console.exe --headless --generate-mono-glue ./modules/mono/glue
+
+      - name: Build C# assemblies
+        run: python ./modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=windows
+
+      - name: Check the editor starts
+        run: ./bin/godot.windows.editor.x86_64.mono.console.exe --version
+
+      - name: Package
+        run: |
+          python modot/ci/package_release.py --platform windows --version "${{ env.VERSION }}"
+          Compress-Archive -Path "dist/MoDot ${{ env.VERSION }}" -DestinationPath "dist/MoDot_${{ env.VERSION }}_windows_x86_64.zip"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: modot-windows
+          path: dist/MoDot_${{ env.VERSION }}_windows_x86_64.zip
+          compression-level: 0
+
+  linux:
+    name: Linux
+    # The oldest supported runner, so the editor also runs on distributions with an older glibc.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libwayland-bin
+
+      - name: Free disk space on runner
+        run: sudo rm -rf /usr/local/lib/android
+
+      - name: Restore build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: modot-linux-editor
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download pre-built AccessKit
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: AccessKit/accesskit-c
+          version: tags/0.17.0
+          file: accesskit-c-0.17.0.zip
+          target: accesskit-c-0.17.0/accesskit_c.zip
+
+      - name: Extract pre-built AccessKit
+        run: unzip -o accesskit-c-0.17.0/accesskit_c.zip
+
+      - name: Compilation
+        run: scons platform=linuxbsd ${{ env.SCONS_FLAGS }} "cache_path=${{ github.workspace }}/.scons_cache/" redirect_build_objects=no
+
+      - name: Save build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: modot-linux-editor
+        continue-on-error: true
+
+      - name: Generate C# glue
+        run: ./bin/godot.linuxbsd.editor.x86_64.mono --headless --generate-mono-glue ./modules/mono/glue
+
+      - name: Build C# assemblies
+        run: python ./modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=linuxbsd
+
+      - name: Check the editor starts
+        run: ./bin/godot.linuxbsd.editor.x86_64.mono --headless --version
+
+      - name: Package
+        run: |
+          strip bin/godot.linuxbsd.editor.x86_64.mono
+          python modot/ci/package_release.py --platform linux --version "${{ env.VERSION }}"
+          cd dist && zip -r -y -q "MoDot_${{ env.VERSION }}_linux_x86_64.zip" "MoDot ${{ env.VERSION }}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: modot-linux
+          path: dist/MoDot_${{ env.VERSION }}_linux_x86_64.zip
+          compression-level: 0
+
+  macos:
+    name: macOS (universal)
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Restore build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: modot-macos-editor
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download pre-built AccessKit
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: AccessKit/accesskit-c
+          version: tags/0.17.0
+          file: accesskit-c-0.17.0.zip
+          target: accesskit-c-0.17.0/accesskit_c.zip
+
+      - name: Extract pre-built AccessKit
+        run: unzip -o accesskit-c-0.17.0/accesskit_c.zip
+
+      - name: Setup Vulkan SDK
+        run: sh misc/scripts/install_vulkan_sdk_macos.sh
+
+      - name: Compilation (x86_64)
+        run: scons platform=macos arch=x86_64 vulkan=yes ${{ env.SCONS_FLAGS }} "cache_path=${{ github.workspace }}/.scons_cache/" redirect_build_objects=no
+
+      - name: Compilation (arm64)
+        run: scons platform=macos arch=arm64 vulkan=yes ${{ env.SCONS_FLAGS }} "cache_path=${{ github.workspace }}/.scons_cache/" redirect_build_objects=no
+
+      - name: Save build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: modot-macos-editor
+        continue-on-error: true
+
+      - name: Universal binary
+        run: |
+          lipo -create ./bin/godot.macos.editor.x86_64.mono ./bin/godot.macos.editor.arm64.mono -output ./bin/godot.macos.editor.universal.mono
+          strip ./bin/godot.macos.editor.universal.mono
+          chmod +x ./bin/godot.macos.editor.universal.mono
+
+      - name: Generate C# glue
+        run: ./bin/godot.macos.editor.universal.mono --headless --generate-mono-glue ./modules/mono/glue
+
+      - name: Build C# assemblies
+        run: python ./modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=macos
+
+      - name: Check the editor starts
+        run: ./bin/godot.macos.editor.universal.mono --headless --version
+
+      - name: Package
+        run: |
+          python modot/ci/package_release.py --platform macos --version "${{ env.VERSION }}"
+          # Ad-hoc signature (no Apple Developer account): required to run on Apple Silicon at all. The app isn't
+          # notarized, so users remove the quarantine flag once (see the release notes).
+          codesign --force --deep --sign - "dist/MoDot ${{ env.VERSION }}/MoDot.app"
+          cd dist && ditto -c -k --sequesterRsrc --keepParent "MoDot ${{ env.VERSION }}" "MoDot_${{ env.VERSION }}_macos.zip"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: modot-macos
+          path: dist/MoDot_${{ env.VERSION }}_macos.zip
+          compression-level: 0
+
+  release:
+    name: Draft release
+    # Only for a manual run; a push to develop only builds.
+    if: github.event_name == 'workflow_dispatch'
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: modot-*
+          path: packages
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          ls -l packages
+          if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "::error::A release with the tag $TAG already exists."
+            exit 1
+          fi
+          cat > notes.md << 'EOF'
+          <!-- Draft: replace with the release notes, attach the pre-patches zip, then publish. -->
+
+          ## Downloads
+
+          - **Windows (x86_64):** `MoDot_${{ env.VERSION }}_windows_x86_64.zip`
+          - **Linux (x86_64):** `MoDot_${{ env.VERSION }}_linux_x86_64.zip`
+          - **macOS (Apple Silicon and Intel):** `MoDot_${{ env.VERSION }}_macos.zip`
+          - **Pre-patches:** separate zip, extract into the `pre_patches` folder next to the MoDot executable (on macOS: next to `MoDot.app`).
+
+          The macOS app isn't signed with an Apple Developer ID. After extracting, run once in Terminal:
+          `xattr -dr com.apple.quarantine "MoDot.app"`
+          EOF
+          gh release create "$TAG" packages/*.zip \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "MoDot ${{ env.VERSION }}" \
+            --notes-file notes.md \
+            --draft

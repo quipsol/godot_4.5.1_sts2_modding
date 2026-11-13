@@ -41,6 +41,7 @@
 #include "core/object/script_language.h"
 #include "core/os/os.h"
 #include "core/templates/hash_map.h"
+#include "core/os/modot_install_dir.h"
 
 static bool _is_valid_id(const String &p_id) {
 	if (p_id.is_empty()) {
@@ -130,7 +131,7 @@ const ModPackers::Packer *ModPackers::ScanResult::find(const String &p_id) const
 }
 
 String ModPackers::get_directory() {
-	return OS::get_singleton()->get_executable_path().get_base_dir().path_join("mod_packers");
+	return modot_get_install_dir().path_join("mod_packers");
 }
 
 // Like the pre-patches: only the direct subfolders of mod_packers/ are searched, and an id used by several packers loads

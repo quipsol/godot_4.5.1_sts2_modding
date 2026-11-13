@@ -35,6 +35,7 @@
 #include "core/io/file_access_pack.h"
 #include "core/version.h"
 #include "gdextension.h"
+#include "core/os/modot_install_dir.h"
 
 #ifdef TOOLS_ENABLED
 // The read-only mounted pack that provides p_path (e.g. a game's pack when modding), or an empty string.
@@ -46,7 +47,7 @@ static String _get_providing_read_only_pack(const String &p_path) {
 // Libraries for the GDExtensions of read-only mounted packs that users install themselves, e.g. an addon's editor build
 // that a game doesn't ship. Searched first; the libraries a library depends on can go next to it.
 static String _get_gdextension_libraries_dir() {
-	return OS::get_singleton()->get_executable_path().get_base_dir().path_join("gdextension_libraries");
+	return modot_get_install_dir().path_join("gdextension_libraries");
 }
 
 // A .gdextension from a read-only mounted pack names libraries the pack can't contain: native libraries are loaded from

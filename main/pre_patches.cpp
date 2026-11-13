@@ -37,6 +37,7 @@
 #include "core/io/json.h"
 #include "core/os/os.h"
 #include "core/templates/hash_map.h"
+#include "core/os/modot_install_dir.h"
 
 static bool _is_valid_id(const String &p_id) {
 	if (p_id.is_empty()) {
@@ -130,7 +131,7 @@ const PrePatches::PrePatch *PrePatches::ScanResult::find(const String &p_id) con
 }
 
 String PrePatches::get_directory() {
-	return OS::get_singleton()->get_executable_path().get_base_dir().path_join("pre_patches");
+	return modot_get_install_dir().path_join("pre_patches");
 }
 
 // Only the direct subfolders of pre_patches/ are searched, so a pre-patch can organize its own folder freely.

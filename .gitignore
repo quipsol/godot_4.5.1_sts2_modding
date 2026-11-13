@@ -390,3 +390,6 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+# MoDot release packages (modot/ci/package_release.py)
+/dist/

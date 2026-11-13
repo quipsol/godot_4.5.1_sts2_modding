@@ -38,6 +38,7 @@
 #include "core/object/class_db.h"
 #include "core/object/script_language.h"
 #include "core/os/os.h"
+#include "core/os/modot_install_dir.h"
 
 static const char *ADDONS_SETTING = "editor/mounted_packs/addons";
 
@@ -187,7 +188,7 @@ MountedPackAddons::Result MountedPackAddons::get_plugin(const String &p_config_p
 		return FOUND;
 	}
 	if (!uncompilable_plugin_scripts.is_empty()) {
-		const String libraries = OS::get_singleton()->get_executable_path().get_base_dir().path_join("gdextension_libraries");
+		const String libraries = modot_get_install_dir().path_join("gdextension_libraries");
 		r_plugin.error = vformat(TTR("The editor plugin of the addon \"%s\" (%s, from the mounted pack \"%s\")\ncan't be compiled in the editor. It probably needs the editor build of the addon's GDExtension,\nwhich a game doesn't ship. Put that build's library files into this folder and restart the editor:\n%s"), addon, uncompilable_plugin_scripts[0].get_file(), pack.get_file(), libraries);
 		return FOUND;
 	}
