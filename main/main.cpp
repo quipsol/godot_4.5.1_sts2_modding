@@ -228,6 +228,7 @@ static int converter_max_line_length = 100000;
 
 HashMap<Main::CLIScope, Vector<String>> forwardable_cli_arguments;
 static Vector<String> command_line_mounted_assemblies;
+static Vector<String> command_line_editor_only_mounted_assemblies;
 static Vector<String> command_line_pre_patches;
 #endif
 static bool single_threaded_scene = false;
@@ -339,6 +340,12 @@ static Vector<String> _get_assembly_paths(const Vector<String> &p_command_line_a
 // (e.g. a game's assembly when modding). See editor/mounted_assemblies/paths.
 Vector<String> Main::get_mounted_assembly_paths() {
 	return _get_assembly_paths(command_line_mounted_assemblies, "editor/mounted_assemblies/paths");
+}
+
+// Assemblies (.dll) loaded alongside the project assembly only in the editor, not in the project run from it (e.g. a
+// mod library the game loads itself from its mods folder). See editor/mounted_assemblies/editor_only_paths.
+Vector<String> Main::get_editor_only_mounted_assembly_paths() {
+	return _get_assembly_paths(command_line_editor_only_mounted_assemblies, "editor/mounted_assemblies/editor_only_paths");
 }
 
 // Assemblies (.dll) whose module initializers run before the project run from the editor starts, e.g. to patch the
@@ -681,6 +688,7 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--main-pack <file>", "Path to a pack (.pck) file to load.\n");
 	print_help_option("--mount-pack <file>", "Mount a pack (.pck) read-only on top of the project, in the editor and in the project run from it. Can be repeated; mounted before the packs in editor/mounted_packs/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--mount-assembly <file>", "Load a .NET assembly (.dll) before the project assembly, in the editor and in the project run from it. Can be repeated; loaded before the assemblies in editor/mounted_assemblies/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
+	print_help_option("--mount-assembly-editor <file>", "Like --mount-assembly, but only in the editor, not in the project run from it (e.g. a mod library the game loads itself). Can be repeated; loaded before the assemblies in editor/mounted_assemblies/editor_only_paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--pre-patch <file>", "Load a .NET assembly (.dll) and run its module initializer before the project run from the editor starts. Can be repeated; runs after the pre-patches enabled in Project Settings and the assemblies in editor/pre_patches/paths.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #ifdef DISABLE_DEPRECATED
 	print_help_option("--render-thread <mode>", "Render thread mode (\"safe\", \"separate\").\n");
@@ -1242,6 +1250,13 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(pack);
 				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(arg);
 				forwardable_cli_arguments[CLI_SCOPE_PROJECT].push_back(pack);
+			}
+		}
+		// Editor-only mounted assemblies apply to editor restarts, but not to the project run from the editor.
+		if (arg == "--mount-assembly-editor") {
+			if (N) {
+				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(arg);
+				forwardable_cli_arguments[CLI_SCOPE_TOOL].push_back(_resolve_mount_pack_path(N->get()));
 			}
 		}
 #endif
@@ -1885,6 +1900,17 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing path to the assembly to mount, aborting.\n");
 				goto error;
 			}
+		} else if (arg == "--mount-assembly-editor") {
+			if (N) {
+				const String assembly = _resolve_mount_pack_path(N->get());
+				if (!command_line_editor_only_mounted_assemblies.has(assembly)) {
+					command_line_editor_only_mounted_assemblies.push_back(assembly);
+				}
+				N = N->next();
+			} else {
+				OS::get_singleton()->print("Missing path to the assembly to mount in the editor, aborting.\n");
+				goto error;
+			}
 		} else if (arg == "--pre-patch") {
 			if (N) {
 				const String assembly = _resolve_mount_pack_path(N->get());
@@ -2314,6 +2340,14 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		// when modding, so the project's scripts can derive from its types). Loaded in the editor and in the
 		// project run from it; relative paths are relative to the project folder. See GDMono.
 		const String setting = "editor/mounted_assemblies/paths";
+		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.dll", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
+		ProjectSettings::get_singleton()->set_machine_specific(setting, editor);
+	}
+	{
+		// Like editor/mounted_assemblies/paths, but loaded only in the editor, not in the project run from it: for an
+		// assembly the game loads itself at runtime (e.g. a mod library such as BaseLib, from the game's mods folder),
+		// so the editor can use it (and decompile its scripts) without the run project loading it a second time.
+		const String setting = "editor/mounted_assemblies/editor_only_paths";
 		GLOBAL_DEF(PropertyInfo(Variant::PACKED_STRING_ARRAY, setting, PROPERTY_HINT_TYPE_STRING, vformat("%d/%d:*.dll", Variant::STRING, PROPERTY_HINT_GLOBAL_FILE)), PackedStringArray());
 		ProjectSettings::get_singleton()->set_machine_specific(setting, editor);
 	}

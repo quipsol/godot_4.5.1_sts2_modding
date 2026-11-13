@@ -29,16 +29,29 @@ assets available read-only, run the game with your mod straight from the editor,
 
 - **Read-only game packs:** mount the game's `.pck` into `res://` (`editor/mounted_packs/paths`,
   `--mount-pack`). Game scenes, resources and scripts can be opened, used and inherited, but not overwritten.
+  Opening a game scene offers to create an inherited scene instead; tick *Don't ask again* to always open
+  them directly (Editor Settings > FileSystem > Mounted Packs). Play and *Save All* skip changed game scenes
+  instead of asking where to save them.
 - **Addons from packs:** enable editor plugins and GDExtensions that ship inside a mounted pack, such as
   the game's Spine and FMOD integration (`editor/mounted_packs/addons`).
 - **Mounted assemblies:** load the game's C# assembly (`sts2.dll`) before your project's
   (`editor/mounted_assemblies/paths`, `--mount-assembly`), so the game's C# scripts work in the editor and
-  your mod can reference them without copying them.
+  your mod can reference them without copying them. Assemblies the game loads itself at runtime, such as a mod
+  library like BaseLib from the game's mods folder, can be mounted in the editor only
+  (`editor/mounted_assemblies/editor_only_paths`, `--mount-assembly-editor`), so the editor-player doesn't
+  load them a second time.
 - **Pre-patches:** run small Harmony patch assemblies before the game starts in the editor-player
   (`editor/pre_patches/paths`, `editor/pre_patches/enabled`, `--pre-patch`). For example,
   `MoDot.Native.SeparateProjectMods` makes each project load only its own mods folder.
+- **Decompiled game scripts:** opening one of the game's C# scripts (the pack only holds an empty
+  placeholder) shows its class decompiled from the mounted assemblies, read-only, with the members Godot's
+  source generators add hidden (Editor Settings > Dotnet > Editor). Scripts from mounted packs always open
+  read-only in the built-in script editor.
 - **Mod packers:** pack a mod with **Project > Pack Mod...** or `--pack-mod <packer> <output.pck>`. The
   default packer is `modot.default`; you can add your own in `mod_packers/` next to the executable.
+- **Publishing from the editor:** the publish menu next to the C# build button runs your project's
+  `dotnet publish` (Debug for the editor-player, or ExportRelease), like an IDE's "Publish to folder".
+  Optionally, Play publishes (Debug) first whenever the project's files changed since the last publish.
 - **Machine-specific paths** go into `override.cfg`, so `project.godot` can be shared.
 - **IDE hot reload:** when the game runs, the project assembly is loaded from its file, so Rider's and
   Visual Studio's hot reload (Edit and Continue) work while debugging.

@@ -772,7 +772,17 @@ bool GDMono::_load_project_assembly() {
 
 	// Mounted assemblies (e.g. a game's assembly when modding) are loaded before the project assembly, into its load
 	// context, so the project can reference them without copying them. See editor/mounted_assemblies/paths.
-	const Utf16Paths mounted_assemblies(Main::get_mounted_assembly_paths());
+	// The editor-only ones (e.g. a mod library the game itself loads at runtime) only in the editor, not in the project
+	// run from it. See editor/mounted_assemblies/editor_only_paths.
+	Vector<String> mounted_assembly_paths = Main::get_mounted_assembly_paths();
+	if (Engine::get_singleton()->is_editor_hint()) {
+		for (const String &path : Main::get_editor_only_mounted_assembly_paths()) {
+			if (!mounted_assembly_paths.has(path)) {
+				mounted_assembly_paths.push_back(path);
+			}
+		}
+	}
+	const Utf16Paths mounted_assemblies(mounted_assembly_paths);
 
 	// Pre-patches run their module initializers right after that, so they can patch the mounted assemblies before
 	// the project uses them. Only in the project run from the editor, not in the editor. See editor/pre_patches/paths.

@@ -122,6 +122,22 @@ Copyright: 2020, Manuel Prandini
  2007-2014, Juan Linietsky, Ariel Manzur
 License: Expat
 
+Files: GodotSharp/Tools/ICSharpCode.Decompiler.dll
+Comment: ICSharpCode.Decompiler (ILSpy's decompiler engine). Not in this
+ repository: a NuGet package referenced by
+ modules/mono/editor/GodotTools/GodotTools/GodotTools.csproj, whose assembly
+ ships with MoDot's editor builds and shows the decompiled code of C# scripts
+ from mounted packs. https://github.com/icsharpcode/ILSpy
+Copyright: 2011-2026, AlphaSierraPapa
+License: Expat
+
+Files: modules/mono/icons/PublishMod.svg
+Comment: Rocket icon (MoDot's Publish menu), from SVG Repo
+Copyright: none (public domain)
+License: public-domain
+ This icon was dedicated to the public domain by its author. It is adapted for
+ the editor (color, size, margin).
+
 Files: platform/android/java/editor/src/main/java/com/android/*
  platform/android/java/lib/aidl/com/android/*
  platform/android/java/lib/res/layout/status_bar_ongoing_event_progress_bar.xml

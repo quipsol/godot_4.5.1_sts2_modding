@@ -17,7 +17,7 @@ namespace GodotTools.Decompiler
 {
     /// <summary>
     /// MoDot: the code of a C# script from a read-only mounted pack, decompiled from the mounted assemblies
-    /// (editor/mounted_assemblies/paths). A game's pack only holds a blank placeholder for each C# file.
+    /// (editor/mounted_assemblies/paths and editor_only_paths). A game's pack only holds a blank placeholder for each C# file.
     /// Only used when a script is opened in the script editor (never when it is loaded), and cached.
     /// <para>
     /// The file's types: the class with <c>[ScriptPath("res://...")]</c>, which Godot's source generator records for
@@ -78,7 +78,7 @@ namespace GodotTools.Decompiler
             if (owner == null)
             {
                 string mounted = assemblies.Count == 0
-                    ? "No assemblies are mounted (editor/mounted_assemblies/paths)."
+                    ? "No assemblies are mounted (editor/mounted_assemblies/paths and editor_only_paths)."
                     : "Mounted assemblies: " + string.Join(", ", assemblies.Select(a => System.IO.Path.GetFileName(a.Path))) + ".";
                 string problemText = problems.Count == 0 ? "" : "\n// Problems: " + string.Join("; ", problems) + ".";
                 return "// MoDot: the pack only holds a placeholder for this script, and none of the mounted assemblies has a type\n" +

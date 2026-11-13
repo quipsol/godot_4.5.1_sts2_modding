@@ -79,7 +79,7 @@ static bool _create_project_solution_if_needed() {
 }
 
 // MoDot: the code of a C# script from a read-only mounted pack, whose file there is only a placeholder (e.g. a game's
-// script), decompiled from the mounted assemblies (editor/mounted_assemblies/paths). Only called when the script is
+// script), decompiled from the mounted assemblies (editor/mounted_assemblies/paths and editor_only_paths). Only called when the script is
 // opened in the script editor, never when it is loaded.
 static String _get_read_only_pack_csharp_source(const Ref<Script> &p_script) {
 	Ref<CSharpScript> cs_script = p_script;
@@ -90,6 +90,11 @@ static String _get_read_only_pack_csharp_source(const Ref<Script> &p_script) {
 	PackedStringArray assembly_paths;
 	for (const String &path : Main::get_mounted_assembly_paths()) {
 		assembly_paths.push_back(path);
+	}
+	for (const String &path : Main::get_editor_only_mounted_assembly_paths()) {
+		if (!assembly_paths.has(path)) {
+			assembly_paths.push_back(path);
+		}
 	}
 	return godotsharp_editor->call("GetDecompiledScriptSource", cs_script->get_path(), assembly_paths);
 }
