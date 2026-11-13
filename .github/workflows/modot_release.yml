@@ -74,7 +74,11 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          # The same SDKs as on the machine the local builds are made on (with SDK 9, the .NET 9 files GodotPlugins
+          # needs are installed instead of downloaded during the restore).
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       # .NET 10, as used locally (GodotPlugins targets net9.0, so .NET 8 can't build it). The runners also have newer
       # SDKs (e.g. 11.0), with which Godot's C# projects fail to restore; Godot's modules/mono/global.json allows any
@@ -121,6 +125,24 @@ jobs:
 
       - name: Generate C# glue
         run: ./bin/godot.windows.editor.x86_64.mono.console.exe --headless --generate-mono-glue ./modules/mono/glue
+
+      # Its own step, so a failure shows NuGet's reason (the C# build's restore only says that it failed).
+      - name: Restore C# projects
+        shell: bash
+        run: |
+          if ! dotnet restore modules/mono/glue/GodotSharp/GodotSharp.sln -v:d > "$RUNNER_TEMP/restore.log" 2>&1; then
+            grep -i -E "error|exception|NU1[0-9]{3}|failed|warn" "$RUNNER_TEMP/restore.log" | head -150
+            exit 1
+          fi
+          grep -E "Restored|up-to-date" "$RUNNER_TEMP/restore.log" || true
+
+      - name: Upload restore log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-log-windows
+          path: ${{ runner.temp }}/restore.log
+          retention-days: 7
 
       - name: Build C# assemblies
         run: python ./modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=windows
@@ -171,7 +193,11 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          # The same SDKs as on the machine the local builds are made on (with SDK 9, the .NET 9 files GodotPlugins
+          # needs are installed instead of downloaded during the restore).
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       # .NET 10, as used locally (GodotPlugins targets net9.0, so .NET 8 can't build it). The runners also have newer
       # SDKs (e.g. 11.0), with which Godot's C# projects fail to restore; Godot's modules/mono/global.json allows any
@@ -204,6 +230,24 @@ jobs:
 
       - name: Generate C# glue
         run: ./bin/godot.linuxbsd.editor.x86_64.mono --headless --generate-mono-glue ./modules/mono/glue
+
+      # Its own step, so a failure shows NuGet's reason (the C# build's restore only says that it failed).
+      - name: Restore C# projects
+        shell: bash
+        run: |
+          if ! dotnet restore modules/mono/glue/GodotSharp/GodotSharp.sln -v:d > "$RUNNER_TEMP/restore.log" 2>&1; then
+            grep -i -E "error|exception|NU1[0-9]{3}|failed|warn" "$RUNNER_TEMP/restore.log" | head -150
+            exit 1
+          fi
+          grep -E "Restored|up-to-date" "$RUNNER_TEMP/restore.log" || true
+
+      - name: Upload restore log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-log-linuxbsd
+          path: ${{ runner.temp }}/restore.log
+          retention-days: 7
 
       - name: Build C# assemblies
         run: python ./modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=linuxbsd
@@ -250,7 +294,11 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          # The same SDKs as on the machine the local builds are made on (with SDK 9, the .NET 9 files GodotPlugins
+          # needs are installed instead of downloaded during the restore).
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       # .NET 10, as used locally (GodotPlugins targets net9.0, so .NET 8 can't build it). The runners also have newer
       # SDKs (e.g. 11.0), with which Godot's C# projects fail to restore; Godot's modules/mono/global.json allows any
@@ -295,6 +343,24 @@ jobs:
 
       - name: Generate C# glue
         run: ./bin/godot.macos.editor.universal.mono --headless --generate-mono-glue ./modules/mono/glue
+
+      # Its own step, so a failure shows NuGet's reason (the C# build's restore only says that it failed).
+      - name: Restore C# projects
+        shell: bash
+        run: |
+          if ! dotnet restore modules/mono/glue/GodotSharp/GodotSharp.sln -v:d > "$RUNNER_TEMP/restore.log" 2>&1; then
+            grep -i -E "error|exception|NU1[0-9]{3}|failed|warn" "$RUNNER_TEMP/restore.log" | head -150
+            exit 1
+          fi
+          grep -E "Restored|up-to-date" "$RUNNER_TEMP/restore.log" || true
+
+      - name: Upload restore log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-log-macos
+          path: ${{ runner.temp }}/restore.log
+          retention-days: 7
 
       - name: Build C# assemblies
         run: python ./modules/mono/build_scripts/build_assemblies.py --godot-output-dir=./bin --godot-platform=macos
