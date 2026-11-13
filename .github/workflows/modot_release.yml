@@ -130,8 +130,13 @@ jobs:
       - name: Restore C# projects
         shell: bash
         run: |
-          if ! dotnet restore modules/mono/glue/GodotSharp/GodotSharp.sln -v:d > "$RUNNER_TEMP/restore.log" 2>&1; then
-            grep -i -E "error|exception|NU1[0-9]{3}|failed|warn" "$RUNNER_TEMP/restore.log" | head -150
+          if ! (cd modules/mono && dotnet restore glue/GodotSharp/GodotSharp.sln -v:d) > "$RUNNER_TEMP/restore.log" 2>&1; then
+            grep -E "Failed to restore|error" "$RUNNER_TEMP/restore.log" | head -20
+            # NuGet keeps its messages (errors, warnings) per project in obj/project.assets.json.
+            for f in modules/mono/glue/GodotSharp/*/obj/project.assets.json; do
+              echo "== $f"
+              python -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding='utf-8-sig')).get('logs', []), indent=1))" "$f"
+            done
             exit 1
           fi
           grep -E "Restored|up-to-date" "$RUNNER_TEMP/restore.log" || true
@@ -235,8 +240,13 @@ jobs:
       - name: Restore C# projects
         shell: bash
         run: |
-          if ! dotnet restore modules/mono/glue/GodotSharp/GodotSharp.sln -v:d > "$RUNNER_TEMP/restore.log" 2>&1; then
-            grep -i -E "error|exception|NU1[0-9]{3}|failed|warn" "$RUNNER_TEMP/restore.log" | head -150
+          if ! (cd modules/mono && dotnet restore glue/GodotSharp/GodotSharp.sln -v:d) > "$RUNNER_TEMP/restore.log" 2>&1; then
+            grep -E "Failed to restore|error" "$RUNNER_TEMP/restore.log" | head -20
+            # NuGet keeps its messages (errors, warnings) per project in obj/project.assets.json.
+            for f in modules/mono/glue/GodotSharp/*/obj/project.assets.json; do
+              echo "== $f"
+              python -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding='utf-8-sig')).get('logs', []), indent=1))" "$f"
+            done
             exit 1
           fi
           grep -E "Restored|up-to-date" "$RUNNER_TEMP/restore.log" || true
@@ -348,8 +358,13 @@ jobs:
       - name: Restore C# projects
         shell: bash
         run: |
-          if ! dotnet restore modules/mono/glue/GodotSharp/GodotSharp.sln -v:d > "$RUNNER_TEMP/restore.log" 2>&1; then
-            grep -i -E "error|exception|NU1[0-9]{3}|failed|warn" "$RUNNER_TEMP/restore.log" | head -150
+          if ! (cd modules/mono && dotnet restore glue/GodotSharp/GodotSharp.sln -v:d) > "$RUNNER_TEMP/restore.log" 2>&1; then
+            grep -E "Failed to restore|error" "$RUNNER_TEMP/restore.log" | head -20
+            # NuGet keeps its messages (errors, warnings) per project in obj/project.assets.json.
+            for f in modules/mono/glue/GodotSharp/*/obj/project.assets.json; do
+              echo "== $f"
+              python -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding='utf-8-sig')).get('logs', []), indent=1))" "$f"
+            done
             exit 1
           fi
           grep -E "Restored|up-to-date" "$RUNNER_TEMP/restore.log" || true
