@@ -52,7 +52,9 @@ env:
 jobs:
   windows:
     name: Windows
-    runs-on: windows-latest
+    # Pinned: Visual Studio 2022, which Godot 4.5's build detects. On newer images it doesn't find MSVC and falls back
+    # to MinGW, which can't link the MSVC builds of ANGLE.
+    runs-on: windows-2022
     timeout-minutes: 240
     env:
       SCONS_CACHE_MSVC_CONFIG: true
