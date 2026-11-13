@@ -36,7 +36,8 @@ concurrency:
 
 env:
   # A test build from a push is named after its commit.
-  VERSION: ${{ inputs.version || format('develop-{0}', github.sha) }}
+  # Not "VERSION": MSBuild reads environment variables as properties, so that would become the C# projects' Version.
+  MODOT_VERSION: ${{ inputs.version || format('develop-{0}', github.sha) }}
   # production=yes without link-time optimization, which would make the CI builds much slower.
   SCONS_FLAGS: >-
     target=editor
@@ -157,14 +158,14 @@ jobs:
 
       - name: Package
         run: |
-          python modot/ci/package_release.py --platform windows --version "${{ env.VERSION }}"
-          Compress-Archive -Path "dist/MoDot ${{ env.VERSION }}" -DestinationPath "dist/MoDot_${{ env.VERSION }}_windows_x86_64.zip"
+          python modot/ci/package_release.py --platform windows --version "${{ env.MODOT_VERSION }}"
+          Compress-Archive -Path "dist/MoDot ${{ env.MODOT_VERSION }}" -DestinationPath "dist/MoDot_${{ env.MODOT_VERSION }}_windows_x86_64.zip"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: modot-windows
-          path: dist/MoDot_${{ env.VERSION }}_windows_x86_64.zip
+          path: dist/MoDot_${{ env.MODOT_VERSION }}_windows_x86_64.zip
           compression-level: 0
           # Test runs' packages; a release's zips are attached to the release.
           retention-days: 7
@@ -268,14 +269,14 @@ jobs:
       - name: Package
         run: |
           strip bin/godot.linuxbsd.editor.x86_64.mono
-          python modot/ci/package_release.py --platform linux --version "${{ env.VERSION }}"
-          cd dist && zip -r -y -q "MoDot_${{ env.VERSION }}_linux_x86_64.zip" "MoDot ${{ env.VERSION }}"
+          python modot/ci/package_release.py --platform linux --version "${{ env.MODOT_VERSION }}"
+          cd dist && zip -r -y -q "MoDot_${{ env.MODOT_VERSION }}_linux_x86_64.zip" "MoDot ${{ env.MODOT_VERSION }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: modot-linux
-          path: dist/MoDot_${{ env.VERSION }}_linux_x86_64.zip
+          path: dist/MoDot_${{ env.MODOT_VERSION }}_linux_x86_64.zip
           compression-level: 0
           # Test runs' packages; a release's zips are attached to the release.
           retention-days: 7
@@ -385,17 +386,17 @@ jobs:
 
       - name: Package
         run: |
-          python modot/ci/package_release.py --platform macos --version "${{ env.VERSION }}"
+          python modot/ci/package_release.py --platform macos --version "${{ env.MODOT_VERSION }}"
           # Ad-hoc signature (no Apple Developer account): required to run on Apple Silicon at all. The app isn't
           # notarized, so users remove the quarantine flag once (see the release notes).
-          codesign --force --deep --sign - "dist/MoDot ${{ env.VERSION }}/MoDot.app"
-          cd dist && ditto -c -k --sequesterRsrc --keepParent "MoDot ${{ env.VERSION }}" "MoDot_${{ env.VERSION }}_macos.zip"
+          codesign --force --deep --sign - "dist/MoDot ${{ env.MODOT_VERSION }}/MoDot.app"
+          cd dist && ditto -c -k --sequesterRsrc --keepParent "MoDot ${{ env.MODOT_VERSION }}" "MoDot_${{ env.MODOT_VERSION }}_macos.zip"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: modot-macos
-          path: dist/MoDot_${{ env.VERSION }}_macos.zip
+          path: dist/MoDot_${{ env.MODOT_VERSION }}_macos.zip
           compression-level: 0
           # Test runs' packages; a release's zips are attached to the release.
           retention-days: 7
@@ -431,9 +432,9 @@ jobs:
 
           ## Downloads
 
-          - **Windows (x86_64):** `MoDot_${{ env.VERSION }}_windows_x86_64.zip`
-          - **Linux (x86_64):** `MoDot_${{ env.VERSION }}_linux_x86_64.zip`
-          - **macOS (Apple Silicon and Intel):** `MoDot_${{ env.VERSION }}_macos.zip`
+          - **Windows (x86_64):** `MoDot_${{ env.MODOT_VERSION }}_windows_x86_64.zip`
+          - **Linux (x86_64):** `MoDot_${{ env.MODOT_VERSION }}_linux_x86_64.zip`
+          - **macOS (Apple Silicon and Intel):** `MoDot_${{ env.MODOT_VERSION }}_macos.zip`
           - **Pre-patches:** separate zip, extract into the `pre_patches` folder next to the MoDot executable (on macOS: next to `MoDot.app`).
 
           The macOS app isn't signed with an Apple Developer ID. After extracting, run once in Terminal:
@@ -442,6 +443,6 @@ jobs:
           gh release create "$TAG" packages/*.zip \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
-            --title "MoDot ${{ env.VERSION }}" \
+            --title "MoDot ${{ env.MODOT_VERSION }}" \
             --notes-file notes.md \
             --draft
