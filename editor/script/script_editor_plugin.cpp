@@ -2529,16 +2529,29 @@ bool ScriptEditor::edit(const Ref<Resource> &p_resource, int p_line, int p_col, 
 
 	Ref<Script> scr = p_resource;
 
+	// MoDot: a script from a read-only mounted pack is only shown, read-only, and always here: an external editor can't
+	// open a file that only exists in a pack.
+	// Exported packs often only hold a script's .remap (e.g. GDScript compiled to .gdc).
+	String read_only_pack;
+	if (scr.is_valid() && !scr->is_built_in() && PackedData::get_singleton()) {
+		read_only_pack = PackedData::get_singleton()->get_pack_shadowed_by_writing(scr->get_path());
+		if (read_only_pack.is_empty()) {
+			read_only_pack = PackedData::get_singleton()->get_pack_shadowed_by_writing(scr->get_path() + ".remap");
+		}
+	}
+	const bool read_only_pack_script = !read_only_pack.is_empty();
+
 	// Don't open dominant script if using an external editor.
 	bool use_external_editor =
 			external_editor_active ||
 			(scr.is_valid() && scr->get_language()->overrides_external_editor());
 	use_external_editor = use_external_editor && !(scr.is_valid() && scr->is_built_in()); // Ignore external editor for built-in scripts.
+	use_external_editor = use_external_editor && !read_only_pack_script;
 	const bool open_dominant = EDITOR_GET("text_editor/behavior/files/open_dominant_script_on_scene_change");
 
 	const bool should_open = (open_dominant && !use_external_editor) || !EditorNode::get_singleton()->is_changing_scene();
 
-	if (scr.is_valid() && scr->get_language()->overrides_external_editor()) {
+	if (scr.is_valid() && scr->get_language()->overrides_external_editor() && !read_only_pack_script) {
 		if (should_open) {
 			Error err = scr->get_language()->open_in_external_editor(scr, p_line >= 0 ? p_line : 0, p_col);
 			if (err != OK) {
@@ -2649,6 +2662,22 @@ bool ScriptEditor::edit(const Ref<Resource> &p_resource, int p_line, int p_col, 
 	}
 	ERR_FAIL_NULL_V(se, false);
 
+	// MoDot: the pack only holds a blank placeholder for e.g. a game's C# script; show what a provider has for it
+	// (decompiled code). Asked each time the script is opened, so a provider's settings apply on reopening.
+	bool substituted_source = false;
+	// The file can also be missing where the pack only holds the script's .remap.
+	if (read_only_pack_script && !read_only_pack_source_funcs.is_empty() &&
+			(!FileAccess::exists(scr->get_path()) || FileAccess::get_file_as_string(scr->get_path()).strip_edges().is_empty())) {
+		for (ReadOnlyPackSourceFunc func : read_only_pack_source_funcs) {
+			const String source = func(scr);
+			if (!source.is_empty()) {
+				scr->set_source_code(source);
+				substituted_source = true;
+				break;
+			}
+		}
+	}
+
 	se->set_edited_resource(p_resource);
 
 	// Syntax highlighting.
@@ -2731,6 +2760,23 @@ bool ScriptEditor::edit(const Ref<Resource> &p_resource, int p_line, int p_col, 
 		cte->set_zoom_factor(zoom_factor);
 		cte->connect("zoomed", callable_mp(this, &ScriptEditor::_set_script_zoom_factor));
 		cte->connect(SceneStringName(visibility_changed), callable_mp(this, &ScriptEditor::_update_code_editor_zoom_factor).bind(cte));
+
+		if (read_only_pack_script) {
+			cte->get_text_editor()->set_editable(false);
+
+			Label *notice = memnew(Label);
+			notice->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+			notice->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("warning_color"), EditorStringName(Editor)));
+			if (substituted_source) {
+				notice->set_text(vformat(TTR("Read-only: decompiled code of this script, from the project's mounted assemblies (the mounted pack \"%s\" only holds a placeholder). Patch it from your mod's code, e.g. with Harmony."), read_only_pack.get_file()));
+			} else if (scr->get_source_code().strip_edges().is_empty()) {
+				notice->set_text(vformat(TTR("Read-only: this script comes from the mounted pack \"%s\", which doesn't contain its source code (e.g. only a compiled version)."), read_only_pack.get_file()));
+			} else {
+				notice->set_text(vformat(TTR("Read-only: this script comes from the mounted pack \"%s\". To change it, copy its code into a script of your own project."), read_only_pack.get_file()));
+			}
+			cte->add_child(notice);
+			cte->move_child(notice, 0);
+		}
 	}
 
 	//test for modification, maybe the script was not edited but was loaded
@@ -4006,6 +4052,14 @@ CreateScriptEditorFunc ScriptEditor::script_editor_funcs[ScriptEditor::SCRIPT_ED
 void ScriptEditor::register_create_script_editor_function(CreateScriptEditorFunc p_func) {
 	ERR_FAIL_COND(script_editor_func_count == SCRIPT_EDITOR_FUNC_MAX);
 	script_editor_funcs[script_editor_func_count++] = p_func;
+}
+
+Vector<ReadOnlyPackSourceFunc> ScriptEditor::read_only_pack_source_funcs;
+
+void ScriptEditor::register_read_only_pack_source_function(ReadOnlyPackSourceFunc p_func) {
+	if (!read_only_pack_source_funcs.has(p_func)) {
+		read_only_pack_source_funcs.push_back(p_func);
+	}
 }
 
 void ScriptEditor::_script_changed() {

@@ -37,6 +37,8 @@
     <PackageReference Include="JetBrains.Rider.PathLocator" Version="1.0.12" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.0" PrivateAssets="All" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <!-- MoDot: decompiled view of C# scripts from read-only mounted packs (MIT, ILSpy's engine). -->
+    <PackageReference Include="ICSharpCode.Decompiler" Version="11.2.0.10050" />
     <Reference Include="GodotSharp">
       <HintPath>$(GodotApiAssembliesDir)/GodotSharp.dll</HintPath>
       <Private>False</Private>

@@ -247,6 +247,7 @@ public:
 };
 
 typedef ScriptEditorBase *(*CreateScriptEditorFunc)(const Ref<Resource> &p_resource);
+typedef String (*ReadOnlyPackSourceFunc)(const Ref<Script> &p_script);
 
 class EditorScriptCodeCompletionCache;
 class FindInFilesDialog;
@@ -380,6 +381,8 @@ class ScriptEditor : public PanelContainer {
 
 	static int script_editor_func_count;
 	static CreateScriptEditorFunc script_editor_funcs[SCRIPT_EDITOR_FUNC_MAX];
+
+	static Vector<ReadOnlyPackSourceFunc> read_only_pack_source_funcs;
 
 	Vector<Ref<EditorSyntaxHighlighter>> syntax_highlighters;
 
@@ -624,6 +627,9 @@ public:
 	void unregister_syntax_highlighter(const Ref<EditorSyntaxHighlighter> &p_syntax_highlighter);
 
 	static void register_create_script_editor_function(CreateScriptEditorFunc p_func);
+	// MoDot: a script from a read-only mounted pack whose file is blank (a game's C# script: its code is only in the
+	// game's assembly) is shown with the text of the first function that returns any (e.g. decompiled code).
+	static void register_read_only_pack_source_function(ReadOnlyPackSourceFunc p_func);
 
 	ScriptEditor(WindowWrapper *p_wrapper);
 };

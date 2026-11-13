@@ -235,6 +235,16 @@ namespace GodotTools
             "code", "code-oss", "vscode", "vscode-oss", "visual-studio-code", "visual-studio-code-oss", "codium"
         };
 
+        /// <summary>
+        /// MoDot: called by the C# module when a C# script from a read-only mounted pack is opened in the script editor
+        /// (the pack only holds a placeholder for it): its class's code, decompiled from the mounted assemblies.
+        /// </summary>
+        [UsedImplicitly]
+        public string GetDecompiledScriptSource(string scriptPath, string[] assemblyPaths)
+        {
+            return Decompiler.ScriptDecompiler.GetSource(scriptPath, assemblyPaths);
+        }
+
         [UsedImplicitly]
         public Error OpenInExternalEditor(Script script, int line, int col)
         {
@@ -644,6 +654,7 @@ namespace GodotTools
             EditorDef(Settings.CreateBinaryLog, false);
             EditorDef(Settings.ProblemsLayout, Variant.From(BuildProblemsView.ProblemsLayout.Tree));
             EditorDef(ModPublish.PublishDebugBeforeRunningSetting, false);
+            EditorDef(Decompiler.ScriptDecompiler.ShowGeneratedMembersSetting, false);
 
             string settingsHintStr = "Disabled";
 

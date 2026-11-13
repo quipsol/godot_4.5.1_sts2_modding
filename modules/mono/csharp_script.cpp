@@ -63,7 +63,9 @@
 #include "editor/docks/node_dock.h"
 #include "editor/editor_node.h"
 #include "editor/file_system/editor_file_system.h"
+#include "editor/script/script_editor_plugin.h"
 #include "editor/settings/editor_settings.h"
+#include "main/main.h"
 #endif
 
 // Types that will be skipped over (in favor of their base types) when setting up instance bindings.
@@ -74,6 +76,22 @@ const Vector<String> ignored_types = {};
 static bool _create_project_solution_if_needed() {
 	CRASH_COND(CSharpLanguage::get_singleton()->get_godotsharp_editor() == nullptr);
 	return CSharpLanguage::get_singleton()->get_godotsharp_editor()->call("CreateProjectSolutionIfNeeded");
+}
+
+// MoDot: the code of a C# script from a read-only mounted pack, whose file there is only a placeholder (e.g. a game's
+// script), decompiled from the mounted assemblies (editor/mounted_assemblies/paths). Only called when the script is
+// opened in the script editor, never when it is loaded.
+static String _get_read_only_pack_csharp_source(const Ref<Script> &p_script) {
+	Ref<CSharpScript> cs_script = p_script;
+	EditorPlugin *godotsharp_editor = CSharpLanguage::get_singleton()->get_godotsharp_editor();
+	if (cs_script.is_null() || godotsharp_editor == nullptr) {
+		return String();
+	}
+	PackedStringArray assembly_paths;
+	for (const String &path : Main::get_mounted_assembly_paths()) {
+		assembly_paths.push_back(path);
+	}
+	return godotsharp_editor->call("GetDecompiledScriptSource", cs_script->get_path(), assembly_paths);
 }
 #endif
 
@@ -1091,6 +1109,8 @@ void CSharpLanguage::_editor_init_callback() {
 	godotsharp_editor->enable_plugin();
 
 	get_singleton()->godotsharp_editor = godotsharp_editor;
+
+	ScriptEditor::register_read_only_pack_source_function(&_get_read_only_pack_csharp_source);
 }
 #endif
 
